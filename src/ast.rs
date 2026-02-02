@@ -1,4 +1,4 @@
-use crate::interner::InternedStr;
+use crate::intern::InternedStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident(pub InternedStr);

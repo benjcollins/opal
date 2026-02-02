@@ -1,6 +1,6 @@
 use crate::{
     ast::{Ident, InfixOp, Lit},
-    inferer::{NumericType, Type},
+    infer::{NumericType, Type},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,7 +15,6 @@ pub struct TypedVar {
 #[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
-    Paren(Box<TypedExpr>),
     Var(TypedVar),
     Infix {
         left: Box<TypedExpr>,
