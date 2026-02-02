@@ -1,3 +1,6 @@
-fun main() {
-    var x = 2 + 3.2;
+module main;
+
+fun main(x: Float) {
+    let y = 9.2;
+    let z = x + y;
 }

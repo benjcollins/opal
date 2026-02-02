@@ -15,18 +15,9 @@ pub struct Span {
     pub end: u32,
 }
 
-impl Span {
-    pub fn new(start: u32, end: u32) -> Span {
-        Span { start, end }
-    }
-}
-
 impl<'src> Lexer<'src> {
     pub fn new(source: &'src str) -> Lexer<'src> {
-        Lexer {
-            source,
-            offset: 0,
-        }
+        Lexer { source, offset: 0 }
     }
     fn peek(&self) -> Option<char> {
         self.source[self.offset..].chars().next()
@@ -40,7 +31,6 @@ impl<'src> Lexer<'src> {
         let mut start;
 
         let token = 'outer: loop {
-
             let ch = self.peek()?;
             start = self.offset;
 
@@ -93,7 +83,10 @@ impl<'src> Lexer<'src> {
             panic!("unexpected character '{}'", ch);
         };
         let end = self.offset as u32;
-        let span = Span { start: start as u32, end };
+        let span = Span {
+            start: start as u32,
+            end,
+        };
         Some((token, span))
     }
 }

@@ -1,15 +1,12 @@
 use crate::{
-    ast::{AstNode, Block, Decl, Expr, Ident, InfixOp, Stmt, Type},
-    interner::InternedStr,
+    ast::{Block, Expr, FunDef, Ident, InfixOp, Lit, Module, ModuleItem, Stmt, Type, Var},
     lexer::{Lexer, Span},
-    token::{self, Keyword, Symbol, Token, TokenKind, TokenTrait},
+    token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenType},
 };
 
 pub struct Parser<'s> {
-    lexer: Lexer<'s>,
+    pub lexer: Lexer<'s>,
     pub token: Option<(Token<'s>, Span)>,
-    prev_token_end: Option<u32>,
-    next_id: u32,
     pub expected: Vec<TokenKind>,
 }
 
@@ -19,91 +16,63 @@ impl<'s> Parser<'s> {
         let token = lexer.next_token();
         Parser {
             lexer,
-            prev_token_end: None,
             token,
-            next_id: 0,
             expected: Vec::new(),
         }
     }
-    pub fn prev_token_end(&self) -> u32 {
-        self.prev_token_end.unwrap()
-    }
-    pub fn next_token_start(&self) -> u32 {
-        let (_, span) = self.token.as_ref().unwrap();
-        span.start
-    }
-    fn new_node<T>(&mut self, span: Span, node: T) -> AstNode<T> {
-        let id = self.next_id;
-        self.next_id += 1;
-        AstNode {
-            id,
-            span,
-            node: Box::new(node),
-        }
-    }
-    fn wrap_node<T, E>(
-        &mut self,
-        f: impl Fn(&mut Parser) -> Result<T, E>,
-    ) -> Result<AstNode<T>, E> {
-        let start = self.next_token_start();
-        let node = f(self)?;
-        let end = self.prev_token_end();
-        Ok(self.new_node(Span::new(start, end), node))
-    }
-    fn expect<T>(&mut self, is_token: impl TokenTrait<Contents<'s> = T>) -> Result<T, ()> {
-        match self.consume(is_token) {
+    fn expect<T>(&mut self, token: impl TokenType<Contents<'s> = T>) -> Result<T, ()> {
+        match self.consume(token) {
             Some(token) => Ok(token),
             None => Err(()),
         }
     }
-    fn consume<T>(&mut self, is_token: impl TokenTrait<Contents<'s> = T>) -> Option<T> {
+    fn consume<T>(&mut self, token_type: impl TokenType<Contents<'s> = T>) -> Option<T> {
         let Some((token, span)) = self.token.take() else {
             return None;
         };
-        match is_token.matches(token) {
+        match token_type.matches(token) {
             Ok(item) => {
-                self.prev_token_end = Some(span.end);
                 self.token = self.lexer.next_token();
                 self.expected.truncate(0);
                 Some(item)
             }
             Err(token) => {
-                self.expected.push(is_token.kind());
+                self.expected.push(token_type.kind());
                 self.token = Some((token, span));
                 None
             }
         }
     }
+    fn consume2(&mut self, token: impl TokenType) -> bool {
+        self.consume(token).is_some()
+    }
 }
 
-pub fn parse_ident(parser: &mut Parser) -> Result<Ident, ()> {
-    let start = parser.next_token_start();
-    let ident = parser.expect(token::Ident)?;
-    let end = parser.prev_token_end();
-    Ok(Ident {
-        str: InternedStr::intern(ident),
-        span: Span::new(start, end),
-    })
+pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
+    if let Some(value) = parser.consume(Int) {
+        return Ok(Expr::Lit(Lit::Int(value)));
+    }
+    if let Some(value) = parser.consume(Float) {
+        return Ok(Expr::Lit(Lit::Float(value)));
+    }
+    if parser.consume2(Symbol::OpenParen) {
+        let expr = parse_expr(parser)?;
+        parser.expect(Symbol::CloseParen)?;
+        return Ok(Expr::Paren(Box::new(expr)));
+    }
+    if parser.consume2(Keyword::True) {
+        return Ok(Expr::Lit(Lit::Bool(true)));
+    }
+    if parser.consume2(Keyword::False) {
+        return Ok(Expr::Lit(Lit::Bool(false)));
+    }
+    if let Some(ident) = parser.consume(token::Ident) {
+        return Ok(Expr::Var(Var(Ident::new(ident))));
+    }
+    Err(())
 }
 
-pub fn parse_value(parser: &mut Parser) -> Result<AstNode<Expr>, ()> {
-    parser.wrap_node(|parser| {
-        if let Some(value) = parser.consume(token::Int) {
-            return Ok(Expr::Int(value));
-        }
-        if let Some(value) = parser.consume(token::Float) {
-            return Ok(Expr::Float(value));
-        }
-        if parser.consume(Symbol::OpenParen).is_some() {
-            let expr = parse_expr(parser)?;
-            parser.expect(Symbol::CloseParen)?;
-            return Ok(Expr::Paren(expr));
-        }
-        Err(())
-    })
-}
-
-pub fn parse_expr(parser: &mut Parser) -> Result<AstNode<Expr>, ()> {
+pub fn parse_expr(parser: &mut Parser) -> Result<Expr, ()> {
     const INFIX_OPS: &[(Symbol, InfixOp)] = &[
         (Symbol::Plus, InfixOp::Add),
         (Symbol::Minus, InfixOp::Subtract),
@@ -112,21 +81,16 @@ pub fn parse_expr(parser: &mut Parser) -> Result<AstNode<Expr>, ()> {
         (Symbol::Percent, InfixOp::Mod),
     ];
 
-    let start = parser.next_token_start();
     let mut left = parse_value(parser)?;
     loop {
         for (symbol, infix_op) in INFIX_OPS {
-            if let Some(_) = parser.consume(*symbol) {
+            if parser.consume2(*symbol) {
                 let right = parse_value(parser)?;
-                let end = parser.prev_token_end();
-                left = parser.new_node(
-                    Span::new(start, end),
-                    Expr::Infix {
-                        left,
-                        op: *infix_op,
-                        right,
-                    },
-                );
+                left = Expr::Infix {
+                    left: Box::new(left),
+                    op: *infix_op,
+                    right: Box::new(right),
+                };
                 continue;
             }
         }
@@ -135,46 +99,43 @@ pub fn parse_expr(parser: &mut Parser) -> Result<AstNode<Expr>, ()> {
     Ok(left)
 }
 
-pub fn parse_stmt(parser: &mut Parser) -> Result<AstNode<Stmt>, ()> {
-    parser.wrap_node(|parser| {
-        if let Some(_) = parser.consume(Keyword::Var) {
-            let name = parse_ident(parser)?;
-            let expr = parser
-                .consume(Symbol::Equals)
-                .map(|_| parse_expr(parser))
-                .transpose()?;
-            parser.expect(Symbol::Semicolon)?;
-            Ok(Stmt::VarDecl { name, expr })
-        } else {
-            let name = parse_ident(parser)?;
-            parser.expect(Symbol::Equals)?;
-            let expr = parse_expr(parser)?;
-            Ok(Stmt::Assign { name, expr })
-        }
-    })
+pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
+    if parser.consume2(Keyword::Let) {
+        let ident = Ident::new(parser.expect(token::Ident)?);
+        parser.expect(Symbol::Equals)?;
+        let expr = parse_expr(parser)?;
+        parser.expect(Symbol::Semicolon)?;
+        Ok(Stmt::VarDef {
+            var: Var(ident),
+            expr,
+        })
+    } else {
+        let name = Var(Ident::new(parser.expect(token::Ident)?));
+        parser.expect(Symbol::Equals)?;
+        let expr = parse_expr(parser)?;
+        Ok(Stmt::Assign { var: name, expr })
+    }
 }
 
-pub fn parse_block(parser: &mut Parser) -> Result<AstNode<Block>, ()> {
+pub fn parse_block(parser: &mut Parser) -> Result<Block, ()> {
     parser.expect(Symbol::OpenBrace)?;
-    parser.wrap_node(|parser| {
-        let mut stmts = vec![];
-        while parser.consume(Symbol::CloseBrace).is_none() {
-            stmts.push(parse_stmt(parser)?);
-        }
-        Ok(Block { stmts })
-    })
+    let mut stmts = vec![];
+    while !parser.consume2(Symbol::CloseBrace) {
+        stmts.push(parse_stmt(parser)?);
+    }
+    Ok(Block { stmts })
 }
 
-pub fn parse_separated<T, SEP: TokenTrait, TERM: TokenTrait>(
+pub fn parse_separated<T, SEP: TokenType, TERM: TokenType>(
     parser: &mut Parser,
     sep: SEP,
     term: TERM,
     parse_fn: impl Fn(&mut Parser) -> Result<T, ()>,
 ) -> Result<Vec<T>, ()> {
     let mut vec = vec![];
-    while parser.consume(term.clone()).is_none() {
+    while !parser.consume2(term.clone()) {
         vec.push(parse_fn(parser)?);
-        if parser.consume(sep.clone()).is_none() {
+        if !parser.consume2(sep.clone()) {
             parser.expect(term)?;
             break;
         }
@@ -182,37 +143,44 @@ pub fn parse_separated<T, SEP: TokenTrait, TERM: TokenTrait>(
     Ok(vec)
 }
 
-pub fn parse_type(parser: &mut Parser) -> Result<AstNode<Type>, ()> {
-    parser.wrap_node(|parser| {
-        let name = parse_ident(parser)?;
-        Ok(Type::Name(name))
-    })
+pub fn parse_type(parser: &mut Parser) -> Result<Type, ()> {
+    let ident = Ident::new(parser.expect(token::Ident)?);
+    Ok(Type(ident))
 }
 
-pub fn parse_decl(parser: &mut Parser) -> Result<AstNode<Decl>, ()> {
-    parser.wrap_node(|parser| {
-        if let Some(_) = parser.consume(Keyword::Fun) {
-            let name = parse_ident(parser)?;
-            parser.expect(Symbol::OpenParen)?;
-            let params = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
-                let name = parse_ident(parser)?;
-                parser.expect(Symbol::Colon)?;
-                let ty = parse_type(parser)?;
-                Ok((name, ty))
-            })?;
-            let returns = parser
-                .consume(Symbol::RightArrow)
-                .map(|_| parse_type(parser))
-                .transpose()?;
-            let block = parse_block(parser)?;
-            Ok(Decl::Func {
-                name,
-                params,
-                returns,
-                block,
-            })
-        } else {
-            Err(())
-        }
-    })
+pub fn parse_module_item(parser: &mut Parser) -> Result<ModuleItem, ()> {
+    if parser.consume2(Keyword::Fun) {
+        let name = Ident::new(parser.expect(token::Ident)?);
+        parser.expect(Symbol::OpenParen)?;
+        let params = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
+            let var = Var(Ident::new(parser.expect(token::Ident)?));
+            parser.expect(Symbol::Colon)?;
+            let ty = parse_type(parser)?;
+            Ok((var, ty))
+        })?;
+        let returns = parser
+            .consume2(Symbol::RightArrow)
+            .then(|| parse_type(parser))
+            .transpose()?;
+        let block = parse_block(parser)?;
+        Ok(ModuleItem::FunDef(FunDef {
+            name,
+            params,
+            returns,
+            block,
+        }))
+    } else {
+        Err(())
+    }
+}
+
+pub fn parse_module(parser: &mut Parser) -> Result<Module, ()> {
+    parser.expect(Keyword::Module)?;
+    let name = Ident::new(parser.expect(token::Ident)?);
+    parser.expect(Symbol::Semicolon)?;
+    let mut items = vec![];
+    while parser.token.is_some() {
+        items.push(parse_module_item(parser)?);
+    }
+    Ok(Module { name, items })
 }

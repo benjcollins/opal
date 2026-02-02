@@ -1,27 +1,39 @@
-use crate::{interner::InternedStr, lexer::Span};
+use crate::interner::InternedStr;
 
-#[derive(Debug, Clone)]
-pub struct AstNode<T> {
-    pub id: u32,
-    pub span: Span,
-    pub node: Box<T>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Ident(pub InternedStr);
+
+impl Ident {
+    pub fn new(s: &str) -> Ident {
+        Ident(InternedStr::intern(s))
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct Ident {
-    pub str: InternedStr,
-    pub span: Span,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Var(pub Ident);
+
+impl Var {
+    pub fn ident(&self) -> &Ident {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Lit {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
 }
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Int(i64),
-    Float(f64),
-    Paren(AstNode<Expr>),
+    Lit(Lit),
+    Paren(Box<Expr>),
+    Var(Var),
     Infix {
-        left: AstNode<Expr>,
+        left: Box<Expr>,
         op: InfixOp,
-        right: AstNode<Expr>,
+        right: Box<Expr>,
     },
 }
 
@@ -36,32 +48,33 @@ pub enum InfixOp {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    VarDecl {
-        name: Ident,
-        expr: Option<AstNode<Expr>>,
-    },
-    Assign {
-        name: Ident,
-        expr: AstNode<Expr>,
-    }
+    VarDef { var: Var, expr: Expr },
+    Assign { var: Var, expr: Expr },
 }
 
 #[derive(Debug)]
 pub struct Block {
-    pub stmts: Vec<AstNode<Stmt>>,
+    pub stmts: Vec<Stmt>,
 }
 
 #[derive(Debug)]
-pub enum Type {
-    Name(Ident),
+pub struct Type(pub Ident);
+
+#[derive(Debug)]
+pub struct FunDef {
+    pub name: Ident,
+    pub params: Vec<(Var, Type)>,
+    pub returns: Option<Type>,
+    pub block: Block,
 }
 
 #[derive(Debug)]
-pub enum Decl {
-    Func {
-        name: Ident,
-        params: Vec<(Ident, AstNode<Type>)>,
-        returns: Option<AstNode<Type>>,
-        block: AstNode<Block>,
-    }
+pub enum ModuleItem {
+    FunDef(FunDef),
+}
+
+#[derive(Debug)]
+pub struct Module {
+    pub name: Ident,
+    pub items: Vec<ModuleItem>,
 }

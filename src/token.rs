@@ -26,7 +26,10 @@ pub enum TokenKind {
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Fun,
-    Var,
+    Let,
+    True,
+    False,
+    Module,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
@@ -44,7 +47,7 @@ pub enum Symbol {
     Slash,
     Minus,
     Colon,
-    RightArrow
+    RightArrow,
 }
 
 impl Symbol {
@@ -68,14 +71,14 @@ impl Symbol {
     }
 }
 
-pub trait TokenTrait: Clone {
+pub trait TokenType: Clone {
     type Contents<'s>;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<Self::Contents<'s>, Token<'s>>;
     fn kind(&self) -> TokenKind;
 }
 
-impl TokenTrait for Symbol {
+impl TokenType for Symbol {
     type Contents<'s> = ();
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
@@ -84,13 +87,13 @@ impl TokenTrait for Symbol {
             token => Err(token),
         }
     }
-    
+
     fn kind(&self) -> TokenKind {
         TokenKind::Symbol(*self)
     }
 }
 
-impl TokenTrait for Keyword {
+impl TokenType for Keyword {
     type Contents<'s> = ();
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
@@ -99,7 +102,7 @@ impl TokenTrait for Keyword {
             token => Err(token),
         }
     }
-    
+
     fn kind(&self) -> TokenKind {
         TokenKind::Keyword(*self)
     }
@@ -108,7 +111,7 @@ impl TokenTrait for Keyword {
 #[derive(Debug, Clone, Copy)]
 pub struct Ident;
 
-impl TokenTrait for Ident {
+impl TokenType for Ident {
     type Contents<'s> = &'s str;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<&'s str, Token<'s>> {
@@ -117,7 +120,7 @@ impl TokenTrait for Ident {
             token => Err(token),
         }
     }
-    
+
     fn kind(&self) -> TokenKind {
         TokenKind::Ident
     }
@@ -126,7 +129,7 @@ impl TokenTrait for Ident {
 #[derive(Debug, Clone, Copy)]
 pub struct Int;
 
-impl TokenTrait for Int {
+impl TokenType for Int {
     type Contents<'s> = i64;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<i64, Token<'s>> {
@@ -135,7 +138,7 @@ impl TokenTrait for Int {
             token => Err(token),
         }
     }
-    
+
     fn kind(&self) -> TokenKind {
         TokenKind::Int
     }
@@ -144,7 +147,7 @@ impl TokenTrait for Int {
 #[derive(Debug, Clone, Copy)]
 pub struct Float;
 
-impl TokenTrait for Float {
+impl TokenType for Float {
     type Contents<'s> = f64;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<f64, Token<'s>> {
@@ -153,7 +156,7 @@ impl TokenTrait for Float {
             token => Err(token),
         }
     }
-    
+
     fn kind(&self) -> TokenKind {
         TokenKind::Float
     }
