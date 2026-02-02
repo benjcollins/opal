@@ -1,6 +1,6 @@
 module main;
 
-fun main(x: Float) {
-    let y = 9.2;
-    let z = x + y;
+fun main() {
+    add(5, 2);
+    add + 2;
 }

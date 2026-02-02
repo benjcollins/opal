@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Block, Expr, FunDef, Ident, InfixOp, Lit, Module, ModuleItem, Stmt, Type, Var},
+    ast::{Block, Expr, Fun, Ident, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef, VarUse},
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenType},
 };
@@ -67,12 +67,26 @@ pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
         return Ok(Expr::Lit(Lit::Bool(false)));
     }
     if let Some(ident) = parser.consume(token::Ident) {
-        return Ok(Expr::Var(Var(Ident::new(ident))));
+        return parse_value_ident(parser, Ident::new(ident));
     }
     Err(())
 }
 
+pub fn parse_value_ident(parser: &mut Parser, ident: Ident) -> Result<Expr, ()> {
+    if parser.consume2(Symbol::OpenParen) {
+        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| parse_expr(parser))?;
+        return Ok(Expr::Call(ident, args));
+    } else {
+        return Ok(Expr::Var(VarUse(ident)));
+    }
+}
+
 pub fn parse_expr(parser: &mut Parser) -> Result<Expr, ()> {
+    let left = parse_value(parser)?;
+    parse_infix(parser, left)
+}
+
+pub fn parse_infix(parser: &mut Parser, mut left: Expr) -> Result<Expr, ()> {
     const INFIX_OPS: &[(Symbol, InfixOp)] = &[
         (Symbol::Plus, InfixOp::Add),
         (Symbol::Minus, InfixOp::Subtract),
@@ -80,8 +94,6 @@ pub fn parse_expr(parser: &mut Parser) -> Result<Expr, ()> {
         (Symbol::Slash, InfixOp::Divide),
         (Symbol::Percent, InfixOp::Mod),
     ];
-
-    let mut left = parse_value(parser)?;
     loop {
         for (symbol, infix_op) in INFIX_OPS {
             if parser.consume2(*symbol) {
@@ -99,21 +111,34 @@ pub fn parse_expr(parser: &mut Parser) -> Result<Expr, ()> {
     Ok(left)
 }
 
+pub fn parse_var_def(parser: &mut Parser) -> Result<VarDef, ()> {
+    let mutable = parser.consume2(Keyword::Mut);
+    let ident = Ident::new(parser.expect(token::Ident)?);
+    Ok(VarDef { mutable, ident })
+}
+
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
     if parser.consume2(Keyword::Let) {
-        let ident = Ident::new(parser.expect(token::Ident)?);
+        let var = parse_var_def(parser)?;
         parser.expect(Symbol::Equals)?;
         let expr = parse_expr(parser)?;
         parser.expect(Symbol::Semicolon)?;
-        Ok(Stmt::VarDef {
-            var: Var(ident),
-            expr,
-        })
+        Ok(Stmt::Let { var, expr })
+    } else if let Some(ident) = parser.consume(token::Ident) {
+        if parser.consume2(Symbol::Equals) {
+            parser.expect(Symbol::Equals)?;
+            let var = VarUse(Ident::new(ident));
+            let expr = parse_expr(parser)?;
+            parser.expect(Symbol::Semicolon)?;
+            Ok(Stmt::Assign { var, expr })
+        } else {
+            let left = parse_value_ident(parser, Ident::new(ident))?;
+            let expr = parse_infix(parser, left)?;
+            parser.expect(Symbol::Semicolon)?;
+            Ok(Stmt::Expr(expr))
+        }
     } else {
-        let name = Var(Ident::new(parser.expect(token::Ident)?));
-        parser.expect(Symbol::Equals)?;
-        let expr = parse_expr(parser)?;
-        Ok(Stmt::Assign { var: name, expr })
+        Ok(Stmt::Expr(parse_expr(parser)?))
     }
 }
 
@@ -153,7 +178,7 @@ pub fn parse_module_item(parser: &mut Parser) -> Result<ModuleItem, ()> {
         let name = Ident::new(parser.expect(token::Ident)?);
         parser.expect(Symbol::OpenParen)?;
         let params = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
-            let var = Var(Ident::new(parser.expect(token::Ident)?));
+            let var = parse_var_def(parser)?;
             parser.expect(Symbol::Colon)?;
             let ty = parse_type(parser)?;
             Ok((var, ty))
@@ -163,7 +188,7 @@ pub fn parse_module_item(parser: &mut Parser) -> Result<ModuleItem, ()> {
             .then(|| parse_type(parser))
             .transpose()?;
         let block = parse_block(parser)?;
-        Ok(ModuleItem::FunDef(FunDef {
+        Ok(ModuleItem::Fun(Fun {
             name,
             params,
             returns,

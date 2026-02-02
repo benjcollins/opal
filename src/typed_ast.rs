@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     ast::{Ident, InfixOp, Lit},
     infer::{NumericType, Type},
@@ -8,14 +10,16 @@ pub struct VarId(pub u32);
 
 #[derive(Debug, Clone)]
 pub struct TypedVar {
+    pub mutable: bool,
     pub ident: Ident,
+    pub ty: Type,
     pub id: VarId,
 }
 
 #[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
-    Var(TypedVar),
+    Var(Rc<TypedVar>),
     Infix {
         left: Box<TypedExpr>,
         right: Box<TypedExpr>,
@@ -26,8 +30,9 @@ pub enum TypedExpr {
 
 #[derive(Debug, Clone)]
 pub enum TypedStmt {
-    VarDecl { var: TypedVar, expr: TypedExpr },
-    Assign { var: TypedVar, expr: TypedExpr },
+    Let { var: Rc<TypedVar>, expr: TypedExpr },
+    Assign { var: Rc<TypedVar>, expr: TypedExpr },
+    Expr(TypedExpr),
 }
 
 #[derive(Debug)]
@@ -36,9 +41,9 @@ pub struct TypedBlock {
 }
 
 #[derive(Debug)]
-pub struct TypedFunDef {
+pub struct TypedFun {
     pub name: Ident,
-    pub params: Vec<(TypedVar, Type)>,
+    pub params: Vec<Rc<TypedVar>>,
     pub returns: Option<Type>,
     pub block: TypedBlock,
 }

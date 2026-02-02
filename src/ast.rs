@@ -9,10 +9,16 @@ impl Ident {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Var(pub Ident);
+#[derive(Debug, Clone)]
+pub struct VarDef {
+    pub mutable: bool,
+    pub ident: Ident,
+}
 
-impl Var {
+#[derive(Debug, Clone)]
+pub struct VarUse(pub Ident);
+
+impl VarUse {
     pub fn ident(&self) -> &Ident {
         &self.0
     }
@@ -28,8 +34,9 @@ pub enum Lit {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Lit(Lit),
+    Call(Ident, Vec<Expr>),
     Paren(Box<Expr>),
-    Var(Var),
+    Var(VarUse),
     Infix {
         left: Box<Expr>,
         op: InfixOp,
@@ -48,8 +55,9 @@ pub enum InfixOp {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    VarDef { var: Var, expr: Expr },
-    Assign { var: Var, expr: Expr },
+    Let { var: VarDef, expr: Expr },
+    Assign { var: VarUse, expr: Expr },
+    Expr(Expr),
 }
 
 #[derive(Debug)]
@@ -61,16 +69,16 @@ pub struct Block {
 pub struct Type(pub Ident);
 
 #[derive(Debug)]
-pub struct FunDef {
+pub struct Fun {
     pub name: Ident,
-    pub params: Vec<(Var, Type)>,
+    pub params: Vec<(VarDef, Type)>,
     pub returns: Option<Type>,
     pub block: Block,
 }
 
 #[derive(Debug)]
 pub enum ModuleItem {
-    FunDef(FunDef),
+    Fun(Fun),
 }
 
 #[derive(Debug)]

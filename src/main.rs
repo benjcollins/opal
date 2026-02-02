@@ -1,23 +1,25 @@
 use std::fs;
 
 use ast::ModuleItem;
-use bytecode::{BytecodeBuffer, Reg, Val};
-use infer::Inferer;
+use elsa::FrozenVec;
+use infer::infer_fun;
+use lower::lower_fun;
 use parser::parse_module;
+use vm::Value;
 
-use crate::{parser::Parser, vm::{VM, Value}};
+use crate::parser::Parser;
 
 mod ast;
 mod bytecode;
 mod infer;
 mod intern;
 mod lexer;
+mod lower;
 mod parser;
 mod scope;
 mod token;
 mod typed_ast;
 mod vm;
-mod lower;
 
 fn main() {
     let source = fs::read_to_string("examples/example.op").unwrap();
@@ -35,38 +37,16 @@ fn main() {
 
     println!("{:#?}", module);
 
-    let mut inferer = Inferer::new();
+    let funs = FrozenVec::new();
 
     for item in &module.items {
-        let fun_def = match item {
-            ModuleItem::FunDef(fun_def) => fun_def,
+        let fun = match item {
+            ModuleItem::Fun(fun) => fun,
         };
-        let typed_fun_def = inferer.infer_fun_def(fun_def).unwrap();
-        println!("{:#?}", typed_fun_def);
+        let typed_fun = infer_fun(fun).unwrap();
+        println!("{:#?}", fun);
+        let compiled_fun = lower_fun(&typed_fun);
+        println!("{:?}", compiled_fun.bytecode);
+        let fun_ptr = Value::fun_ptr(funs.push_get(Box::new(compiled_fun)));
     }
-
-    // let mut buf = BytecodeBuffer::new();
-
-    // buf.instr().mov(Reg(0), Val::cst(2));
-    // buf.label("loop_start");
-    // buf.instr().beq(Val::reg(0), Val::cst(1), "loop_end");
-    // buf.instr().iadd(Reg(0), Val::reg(0), Val::cst(0));
-    // buf.instr().jmp("loop_start");
-    // buf.label("loop_end");
-
-    // let bytecode = buf.finish();
-
-    // let mut vm = VM {
-    //     bytecode: &bytecode,
-    //     ip: 0,
-    //     regs: vec![Value::int(0); 256],
-    //     csts: vec![Value::int(1), Value::int(10), Value::int(5)],
-    // };
-
-    // for _ in 0..20 {
-    //     vm.execute_next_instr();
-    //     println!("{:?}", &vm.regs[0..5]);
-    // }
-
-    // println!("{:?}", bytecode);
 }

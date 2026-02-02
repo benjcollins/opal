@@ -1,13 +1,16 @@
+use std::rc::Rc;
+
 use crate::{
-    ast::{self, Block, Expr, FunDef, Ident, Lit, Stmt},
+    ast::{self, Block, Expr, Fun, Ident, Lit, Stmt, VarDef},
     scope::Scope,
-    typed_ast::{TypedBlock, TypedExpr, TypedFunDef, TypedStmt, TypedVar, VarId},
+    typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, TypedVar, VarId},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Numeric(NumericType),
     Bool,
+    Unit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,14 +23,14 @@ impl Type {
     fn as_numeric_type(&self) -> Option<NumericType> {
         match self {
             Type::Numeric(numeric_type) => Some(*numeric_type),
-            Type::Bool => None,
+            _ => None,
         }
     }
 }
 
 pub struct Inferer {
     next_var_id: u32,
-    scope: Scope<Ident, (VarId, Type)>,
+    scope: Scope<Ident, Rc<TypedVar>>,
 }
 
 fn infer_lit(lit: &Lit) -> Type {
@@ -43,7 +46,29 @@ fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
         "Int" => Type::Numeric(NumericType::Int),
         "Float" => Type::Numeric(NumericType::Float),
         "Bool" => Type::Bool,
+        "Unit" => Type::Unit,
         _ => return Err(()),
+    })
+}
+
+pub fn infer_fun(fun: &Fun) -> Result<TypedFun, ()> {
+    let mut inferer = Inferer {
+        next_var_id: 0,
+        scope: Scope::new(),
+    };
+    inferer.scope.enter_block();
+    let mut params = vec![];
+    for (var, ty) in &fun.params {
+        let ty = resolve_type(ty)?;
+        params.push(inferer.insert_var(var, ty));
+    }
+    let block = inferer.infer_block(&fun.block)?;
+    inferer.scope.exit_block();
+    Ok(TypedFun {
+        name: fun.name.clone(),
+        params,
+        returns: fun.returns.as_ref().map(|returns| resolve_type(&returns)).transpose()?,
+        block,
     })
 }
 
@@ -62,14 +87,14 @@ impl Inferer {
                 let ty = infer_lit(lit);
                 (typed_expr, ty)
             }
+            Expr::Call(name, args) => {
+                todo!()
+            }
             Expr::Paren(node) => self.infer_expr(node)?,
             Expr::Var(var) => {
-                let &(id, ty) = self.scope.get(var.ident()).unwrap();
-                let typed_expr = TypedExpr::Var(TypedVar {
-                    ident: var.ident().clone(),
-                    id,
-                });
-                (typed_expr, ty)
+                let var = self.scope.get(var.ident()).unwrap();
+                let typed_expr = TypedExpr::Var(var.clone());
+                (typed_expr, var.ty)
             }
             Expr::Infix { left, op, right } => {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
@@ -98,36 +123,40 @@ impl Inferer {
         Ok((typed_expr, ty))
     }
 
-    fn insert_var(&mut self, ident: Ident, ty: Type) -> TypedVar {
+    fn insert_var(&mut self, var: &VarDef, ty: Type) -> Rc<TypedVar> {
         let id = VarId(self.next_var_id);
         self.next_var_id += 1;
-        self.scope.insert(ident.clone(), (id, ty));
-        TypedVar { ident, id }
+        let var = Rc::new(TypedVar {
+            mutable: var.mutable,
+            ident: var.ident.clone(),
+            ty,
+            id,
+        });
+        self.scope.insert(var.ident.clone(), var.clone());
+        var
     }
 
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<TypedStmt, ()> {
         Ok(match stmt {
-            Stmt::VarDef { var, expr } => {
-                let (typed_expr, expr_ty) = self.infer_expr(expr)?;
-                let typed_var = self.insert_var(var.ident().clone(), expr_ty);
-                TypedStmt::VarDecl {
-                    var: typed_var,
-                    expr: typed_expr,
-                }
+            Stmt::Let { var, expr } => {
+                let (expr, ty) = self.infer_expr(expr)?;
+                let var = self.insert_var(var, ty);
+                TypedStmt::Let { var, expr }
             }
             Stmt::Assign { var, expr } => {
-                let &(id, var_ty) = self.scope.get(var.ident()).unwrap();
-                let (typed_expr, expr_ty) = self.infer_expr(expr)?;
-                if expr_ty != var_ty {
+                let var = self.scope.get(var.ident()).unwrap().clone();
+                let (expr, ty) = self.infer_expr(expr)?;
+                if ty != var.ty {
                     return Err(());
                 }
-                TypedStmt::Assign {
-                    var: TypedVar {
-                        ident: var.ident().clone(),
-                        id,
-                    },
-                    expr: typed_expr,
+                TypedStmt::Assign { var, expr }
+            }
+            Stmt::Expr(expr) => {
+                let (expr, ty) = self.infer_expr(expr)?;
+                if ty != Type::Unit {
+                    return Err(());
                 }
+                TypedStmt::Expr(expr)
             }
         })
     }
@@ -140,27 +169,5 @@ impl Inferer {
         }
         self.scope.exit_block();
         Ok(TypedBlock { stmts })
-    }
-
-    pub fn infer_fun_def(&mut self, fun_def: &FunDef) -> Result<TypedFunDef, ()> {
-        self.scope.enter_block();
-        let mut params = vec![];
-        for (name, ty) in &fun_def.params {
-            let ty = resolve_type(ty)?;
-            let typed_var = self.insert_var(name.ident().clone(), ty);
-            params.push((typed_var, ty));
-        }
-        let block = self.infer_block(&fun_def.block)?;
-        self.scope.exit_block();
-        Ok(TypedFunDef {
-            name: fun_def.name.clone(),
-            params,
-            returns: fun_def
-                .returns
-                .as_ref()
-                .map(|returns| resolve_type(&returns))
-                .transpose()?,
-            block,
-        })
     }
 }

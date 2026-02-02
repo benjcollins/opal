@@ -44,7 +44,6 @@ impl Instr {
             Val::cst(idx)
         }
     }
-
     pub fn src2(self) -> Val {
         let idx = self.0 as u8;
         if self.0 >> 24 & 1 == 0 {
@@ -53,19 +52,15 @@ impl Instr {
             Val::cst(idx)
         }
     }
-
     pub fn dst(self) -> Reg {
         Reg((self.0 >> 16) as u8)
     }
-
     pub fn branch_offset(self) -> i8 {
         (self.0 >> 16) as i8
     }
-
     pub fn jump_offset(self) -> i16 {
         self.0 as i16
     }
-
     pub fn op(self) -> Op {
         Op::from_repr((self.0 >> 26) as u8).expect("invalid operation!")
     }
@@ -92,9 +87,7 @@ impl<L: Hash + Eq> BytecodeBuffer<L> {
         }
     }
     pub fn instr<'b>(&'b mut self) -> InstrBuilder<'b, L> {
-        InstrBuilder {
-            bytecode_buffer: self,
-        }
+        InstrBuilder { bytecode_buffer: self }
     }
     pub fn label(&mut self, label: L) {
         self.labels.insert(label, self.buffer.len());

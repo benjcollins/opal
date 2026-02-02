@@ -1,24 +1,54 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{InfixOp, Lit}, bytecode::{BytecodeBuffer, Cst, Reg, Val}, infer::NumericType, typed_ast::{TypedBlock, TypedExpr, TypedStmt, VarId}, vm::Value
+    ast::{InfixOp, Lit},
+    bytecode::{BytecodeBuffer, Cst, Instr, Reg, Val},
+    infer::NumericType,
+    typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, VarId},
+    vm::Value,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Label(u32);
+pub struct Label(u32);
 
-struct Lowerer {
-    bytecode: BytecodeBuffer<Label>,
-    consts: Vec<Value>,
-    consts_index: HashMap<Value, Cst>,
-    next_label: u32,
-    stack_top: u8,
-    stack_frames: Vec<u8>,
-    vars: HashMap<VarId, Reg>,
+pub struct Lowerer<'f> {
+    pub bytecode: BytecodeBuffer<Label>,
+    pub consts: Vec<Value<'f>>,
+    pub consts_index: HashMap<Value<'f>, Cst>,
+    pub next_label: u32,
+    pub stack_top: u8,
+    pub stack_frames: Vec<u8>,
+    pub vars: HashMap<VarId, Reg>,
 }
 
-impl Lowerer {
-    fn get_const(&mut self, value: Value) -> Cst {
+pub struct Fun<'f> {
+    pub consts: Vec<Value<'f>>,
+    pub bytecode: Vec<Instr>,
+}
+
+pub fn lower_fun<'f>(fun: &TypedFun) -> Fun<'f> {
+    let mut lowerer = Lowerer {
+        bytecode: BytecodeBuffer::new(),
+        consts: Vec::new(),
+        consts_index: HashMap::new(),
+        next_label: 0,
+        stack_top: fun.params.len() as u8,
+        stack_frames: Vec::new(),
+        vars: HashMap::new(),
+    };
+    for param in &fun.params {
+        let reg = lowerer.new_reg();
+        lowerer.vars.insert(param.id, reg);
+    }
+    lowerer.lower_block(&fun.block);
+    Fun {
+        consts: lowerer.consts,
+        bytecode: lowerer.bytecode.finish(),
+    }
+}
+
+impl<'f> Lowerer<'f> {
+    fn get_const(&mut self, value: Value<'f>) -> Cst {
         *self.consts_index.entry(value).or_insert_with(|| {
             let cst = Cst(self.consts.len() as u8);
             self.consts.push(value);
@@ -46,9 +76,7 @@ impl Lowerer {
                 };
                 Val::Cst(cst)
             }
-            TypedExpr::Var(var) => {
-                Val::Reg(*self.vars.get(&var.id).unwrap())
-            }
+            TypedExpr::Var(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
             _ => {
                 let dst = self.new_reg();
                 self.lower_expr_dst(expr, dst);
@@ -58,12 +86,7 @@ impl Lowerer {
     }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         match expr {
-            TypedExpr::Infix {
-                left,
-                right,
-                op,
-                ty,
-            } => {
+            TypedExpr::Infix { left, right, op, ty } => {
                 let src1 = self.lower_expr_val(left);
                 let src2 = self.lower_expr_val(right);
                 match (op, ty) {
@@ -90,7 +113,7 @@ impl Lowerer {
     }
     fn lower_stmt(&mut self, stmt: &TypedStmt) {
         match stmt {
-            TypedStmt::VarDecl { var, expr } => {
+            TypedStmt::Let { var, expr } => {
                 let var_reg = self.new_reg();
                 self.vars.insert(var.id, var_reg);
                 self.lower_expr_dst(expr, var_reg);
@@ -99,9 +122,14 @@ impl Lowerer {
                 let var_reg = self.vars.get(&var.id).unwrap();
                 self.lower_expr_dst(expr, *var_reg);
             }
+            TypedStmt::Expr(expr) => {
+                self.enter_stack_frame();
+                self.lower_expr_val(expr);
+                self.exit_stack_frame();
+            }
         }
     }
-    fn lower_block(&mut self, block: &TypedBlock) {
+    pub fn lower_block(&mut self, block: &TypedBlock) {
         self.enter_stack_frame();
         for stmt in &block.stmts {
             self.lower_stmt(stmt);

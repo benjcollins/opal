@@ -30,6 +30,7 @@ pub enum Keyword {
     True,
     False,
     Module,
+    Mut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
