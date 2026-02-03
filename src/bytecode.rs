@@ -187,6 +187,16 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.arith_instr(Op::MOV, dst, src, Val::reg(0));
     }
 
+    pub fn call(self, fun: Val, arg_start: u8, arg_count: u8) {
+        self.bytecode_buffer.buffer.push(Instr(
+            (Op::CALL as u32) << 26
+                | (fun.is_cst() as u32) << 25
+                | (fun.idx() as u32) << 16
+                | (arg_start as u32) << 8
+                | (arg_count as u32),
+        ));
+    }
+
     define_arith_instr!(iadd, IADD);
     define_arith_instr!(isub, ISUB);
     define_arith_instr!(imul, IMUL);

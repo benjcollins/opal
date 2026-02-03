@@ -57,6 +57,7 @@ pub enum InfixOp {
 pub enum Stmt {
     Let { var: VarDef, expr: Expr },
     Assign { var: VarUse, expr: Expr },
+    Return(Option<Expr>),
     Expr(Expr),
 }
 

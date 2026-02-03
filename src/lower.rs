@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
 
 use crate::{
-    ast::{InfixOp, Lit},
+    ast::{Ident, InfixOp, Lit},
     bytecode::{BytecodeBuffer, Cst, Instr, Reg, Val},
     infer::NumericType,
     typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, VarId},
@@ -19,14 +19,15 @@ pub struct Lowerer<'f> {
     pub stack_top: u8,
     pub stack_frames: Vec<u8>,
     pub vars: HashMap<VarId, Reg>,
+    pub fun_ptrs: Vec<(Ident, u8)>,
 }
 
 pub struct Fun<'f> {
-    pub consts: Vec<Value<'f>>,
+    pub consts: Vec<Cell<Value<'f>>>,
     pub bytecode: Vec<Instr>,
 }
 
-pub fn lower_fun<'f>(fun: &TypedFun) -> Fun<'f> {
+pub fn lower_fun<'f>(fun: &TypedFun) -> (Fun<'f>, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),
@@ -35,16 +36,17 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> Fun<'f> {
         stack_top: fun.params.len() as u8,
         stack_frames: Vec::new(),
         vars: HashMap::new(),
+        fun_ptrs: Vec::new(),
     };
     for param in &fun.params {
-        let reg = lowerer.new_reg();
+        let reg = lowerer.alloc_reg();
         lowerer.vars.insert(param.id, reg);
     }
     lowerer.lower_block(&fun.block);
-    Fun {
-        consts: lowerer.consts,
+    (Fun {
+        consts: lowerer.consts.into_iter().map(Cell::new).collect(),
         bytecode: lowerer.bytecode.finish(),
-    }
+    }, lowerer.fun_ptrs)
 }
 
 impl<'f> Lowerer<'f> {
@@ -55,7 +57,7 @@ impl<'f> Lowerer<'f> {
             cst
         })
     }
-    fn new_reg(&mut self) -> Reg {
+    fn alloc_reg(&mut self) -> Reg {
         let reg = Reg(self.stack_top);
         self.stack_top += 1;
         reg
@@ -77,8 +79,22 @@ impl<'f> Lowerer<'f> {
                 Val::Cst(cst)
             }
             TypedExpr::Var(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
+            TypedExpr::Call(name, args) => {
+                let fun = self.get_const(Value::null());
+                self.fun_ptrs.push((name.clone(), fun.0));
+                let arg_start = self.stack_top;
+                let return_reg = self.alloc_reg();
+                self.enter_stack_frame();
+                for arg in args {
+                    let arg_reg = self.alloc_reg();
+                    self.lower_expr_dst(arg, arg_reg);
+                }
+                self.bytecode.instr().call(Val::Cst(fun), arg_start, args.len() as u8);
+                self.exit_stack_frame();
+                Val::Reg(return_reg)
+            }
             _ => {
-                let dst = self.new_reg();
+                let dst = self.alloc_reg();
                 self.lower_expr_dst(expr, dst);
                 Val::Reg(dst)
             }
@@ -114,7 +130,7 @@ impl<'f> Lowerer<'f> {
     fn lower_stmt(&mut self, stmt: &TypedStmt) {
         match stmt {
             TypedStmt::Let { var, expr } => {
-                let var_reg = self.new_reg();
+                let var_reg = self.alloc_reg();
                 self.vars.insert(var.id, var_reg);
                 self.lower_expr_dst(expr, var_reg);
             }

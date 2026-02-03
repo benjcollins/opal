@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{self, Block, Expr, Fun, Ident, Lit, Stmt, VarDef},
@@ -8,7 +8,8 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
-    Numeric(NumericType),
+    Int,
+    Float,
     Bool,
     Unit,
 }
@@ -19,42 +20,59 @@ pub enum NumericType {
     Float,
 }
 
+impl From<NumericType> for Type {
+    fn from(value: NumericType) -> Self {
+        match value {
+            NumericType::Int => Type::Int,
+            NumericType::Float => Type::Float,
+        }
+    }
+}
+
 impl Type {
     fn as_numeric_type(&self) -> Option<NumericType> {
         match self {
-            Type::Numeric(numeric_type) => Some(*numeric_type),
+            Type::Int => Some(NumericType::Int),
+            Type::Float => Some(NumericType::Float),
             _ => None,
         }
     }
 }
 
-pub struct Inferer {
+pub struct Inferer<'e> {
     next_var_id: u32,
     scope: Scope<Ident, Rc<TypedVar>>,
+    env: &'e HashMap<Ident, FunSig>,
 }
 
 fn infer_lit(lit: &Lit) -> Type {
     match lit {
-        Lit::Int(_) => Type::Numeric(NumericType::Int),
-        Lit::Float(_) => Type::Numeric(NumericType::Float),
+        Lit::Int(_) => Type::Int,
+        Lit::Float(_) => Type::Float,
         Lit::Bool(_) => Type::Bool,
     }
 }
 
-fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
+pub fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
     Ok(match ty.0.0.as_str() {
-        "Int" => Type::Numeric(NumericType::Int),
-        "Float" => Type::Numeric(NumericType::Float),
+        "Int" => Type::Int,
+        "Float" => Type::Float,
         "Bool" => Type::Bool,
         "Unit" => Type::Unit,
         _ => return Err(()),
     })
 }
 
-pub fn infer_fun(fun: &Fun) -> Result<TypedFun, ()> {
+pub struct FunSig {
+    pub params: Vec<Type>,
+    pub returns: Type,
+}
+
+pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()> {
     let mut inferer = Inferer {
         next_var_id: 0,
         scope: Scope::new(),
+        env,
     };
     inferer.scope.enter_block();
     let mut params = vec![];
@@ -72,14 +90,7 @@ pub fn infer_fun(fun: &Fun) -> Result<TypedFun, ()> {
     })
 }
 
-impl Inferer {
-    pub fn new() -> Inferer {
-        Inferer {
-            next_var_id: 0,
-            scope: Scope::new(),
-        }
-    }
-
+impl<'e> Inferer<'e> {
     fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), ()> {
         let (typed_expr, ty) = match expr {
             Expr::Lit(lit) => {
@@ -88,7 +99,18 @@ impl Inferer {
                 (typed_expr, ty)
             }
             Expr::Call(name, args) => {
-                todo!()
+                let fun_sig = self.env.get(name).ok_or(())?;
+                let mut typed_args = vec![];
+                let mut arg_tys = vec![];
+                for arg in args {
+                    let (typed_arg, arg_ty) = self.infer_expr(arg)?;
+                    typed_args.push(typed_arg);
+                    arg_tys.push(arg_ty);
+                }
+                if arg_tys != fun_sig.params {
+                    return Err(())
+                }
+                (TypedExpr::Call(name.clone(), typed_args), fun_sig.returns)
             }
             Expr::Paren(node) => self.infer_expr(node)?,
             Expr::Var(var) => {
@@ -114,7 +136,7 @@ impl Inferer {
                     right: Box::new(right_expr),
                 };
 
-                let ty = Type::Numeric(left_ty);
+                let ty = left_ty.into();
 
                 (typed_expr, ty)
             }
@@ -158,6 +180,7 @@ impl Inferer {
                 }
                 TypedStmt::Expr(expr)
             }
+            Stmt::Return(expr) => todo!(),
         })
     }
 

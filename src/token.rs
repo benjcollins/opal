@@ -31,10 +31,12 @@ pub enum Keyword {
     False,
     Module,
     Mut,
+    Return,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
 pub enum Symbol {
+    RightArrow,
     OpenParen,
     CloseParen,
     OpenBrace,
@@ -48,7 +50,6 @@ pub enum Symbol {
     Slash,
     Minus,
     Colon,
-    RightArrow,
 }
 
 impl Symbol {

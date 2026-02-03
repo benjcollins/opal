@@ -16,6 +16,9 @@ pub struct VM<'f> {
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
 
 impl<'f> Value<'f> {
+    pub fn null() -> Value<'f> {
+        Value(0, PhantomData)
+    }
     pub fn int(value: i64) -> Value<'f> {
         Value(value as u64, PhantomData)
     }

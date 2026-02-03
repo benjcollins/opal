@@ -19,6 +19,7 @@ pub struct TypedVar {
 #[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
+    Call(Ident, Vec<TypedExpr>),
     Var(Rc<TypedVar>),
     Infix {
         left: Box<TypedExpr>,

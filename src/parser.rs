@@ -124,6 +124,13 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
         let expr = parse_expr(parser)?;
         parser.expect(Symbol::Semicolon)?;
         Ok(Stmt::Let { var, expr })
+    } else if parser.consume2(Keyword::Return) {
+        let expr = (!parser.consume2(Symbol::Semicolon)).then(|| {
+            let expr = parse_expr(parser)?;
+            parser.expect(Symbol::Semicolon)?;
+            Ok(expr)
+        }).transpose()?;
+        Ok(Stmt::Return(expr))
     } else if let Some(ident) = parser.consume(token::Ident) {
         if parser.consume2(Symbol::Equals) {
             parser.expect(Symbol::Equals)?;
