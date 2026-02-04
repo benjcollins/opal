@@ -1,5 +1,8 @@
 use crate::{
-    ast::{Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef, VarUse},
+    ast::{
+        ArithOp, Block, CompOp, Else, Expr, Fun, Ident, If, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef,
+        VarUse,
+    },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenType},
 };
@@ -74,7 +77,9 @@ pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
 
 pub fn parse_value_ident(parser: &mut Parser, ident: Ident) -> Result<Expr, ()> {
     if parser.consume2(Symbol::OpenParen) {
-        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| parse_expr(parser, 0))?;
+        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
+            parse_expr(parser, 0)
+        })?;
         return Ok(Expr::Call(ident, args));
     } else {
         return Ok(Expr::Var(VarUse(ident)));
@@ -90,14 +95,19 @@ pub fn parse_expr(parser: &mut Parser, prec: Prec) -> Result<Expr, ()> {
 
 pub fn parse_infix(parser: &mut Parser, mut left: Expr, prec: Prec) -> Result<Expr, ()> {
     const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
-        (Symbol::Star, InfixOp::Multiply, 3),
-        (Symbol::Slash, InfixOp::Divide, 3),
-        (Symbol::Percent, InfixOp::Mod, 3),
-
-        (Symbol::Plus, InfixOp::Add, 2),
-        (Symbol::Minus, InfixOp::Subtract, 2),
-
-        (Symbol::DoubleEquals, InfixOp::Equals, 1),
+        (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 3),
+        (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 3),
+        //
+        (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 3),
+        (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 2),
+        (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 2),
+        //
+        (Symbol::DoubleEqual, InfixOp::Comp(CompOp::Equal), 1),
+        (Symbol::NotEqual, InfixOp::Comp(CompOp::NotEqual), 1),
+        (Symbol::Less, InfixOp::Comp(CompOp::Less), 1),
+        (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 1),
+        (Symbol::LessEqual, InfixOp::Comp(CompOp::LessEqual), 1),
+        (Symbol::GreaterEqual, InfixOp::Comp(CompOp::GreaterEqual), 1),
     ];
     'outer: loop {
         for (symbol, infix_op, op_prec) in INFIX_OPS {
@@ -142,20 +152,22 @@ pub fn parse_if(parser: &mut Parser) -> Result<If, ()> {
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
     if parser.consume2(Keyword::Let) {
         let var = parse_var_def(parser)?;
-        parser.expect(Symbol::Equals)?;
+        parser.expect(Symbol::Equal)?;
         let expr = parse_expr(parser, 0)?;
         parser.expect(Symbol::Semicolon)?;
         Ok(Stmt::Let { var, expr })
     } else if parser.consume2(Keyword::Return) {
-        let expr = (!parser.consume2(Symbol::Semicolon)).then(|| {
-            let expr = parse_expr(parser, 0)?;
-            parser.expect(Symbol::Semicolon)?;
-            Ok(expr)
-        }).transpose()?;
+        let expr = (!parser.consume2(Symbol::Semicolon))
+            .then(|| {
+                let expr = parse_expr(parser, 0)?;
+                parser.expect(Symbol::Semicolon)?;
+                Ok(expr)
+            })
+            .transpose()?;
         Ok(Stmt::Return(expr))
     } else if let Some(ident) = parser.consume(token::Ident) {
-        if parser.consume2(Symbol::Equals) {
-            parser.expect(Symbol::Equals)?;
+        if parser.consume2(Symbol::Equal) {
+            parser.expect(Symbol::Equal)?;
             let var = VarUse(Ident::new(ident));
             let expr = parse_expr(parser, 0)?;
             parser.expect(Symbol::Semicolon)?;

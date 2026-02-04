@@ -47,28 +47,27 @@ pub enum Expr {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InfixOp {
+    Arith(ArithOp),
+    Comp(CompOp),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithOp {
     Add,
     Subtract,
     Multiply,
     Divide,
-    Mod,
-
-    Equals,
+    Modulus,
 }
 
-impl InfixOp {
-    pub fn is_comparison(&self) -> bool {
-        match self {
-            InfixOp::Equals => true,
-            _ => false,
-        }
-    }
-    pub fn is_arithmetic(&self) -> bool {
-        match self {
-            InfixOp::Add | InfixOp::Subtract | InfixOp::Multiply | InfixOp::Divide | InfixOp::Mod => true,
-            _ => false,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompOp {
+    Equal,
+    NotEqual,
+    Greater,
+    Less,
+    LessEqual,
+    GreaterEqual,
 }
 
 #[derive(Debug, Clone)]

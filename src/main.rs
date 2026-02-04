@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, process::exit};
 
 use ast::{Ident, ModuleItem};
 use elsa::FrozenVec;
@@ -31,10 +31,7 @@ fn main() {
     let module = match parse_module(&mut parser) {
         Ok(module) => module,
         Err(_) => {
-            println!(
-                "parse error, token: {:?}, expected: {:?}",
-                parser.token, parser.expected
-            );
+            println!("parse error, token: {:?}, expected: {:?}", parser.token, parser.expected);
             return;
         }
     };
@@ -44,20 +41,13 @@ fn main() {
     env.insert(Ident::new("debug_int"), FunSig::new_native(vec![Type::Int], Type::Unit));
     env.insert(Ident::new("debug_float"), FunSig::new_native(vec![Type::Float], Type::Unit));
     env.insert(Ident::new("debug_bool"), FunSig::new_native(vec![Type::Bool], Type::Unit));
+    env.insert(Ident::new("assert"), FunSig::new_native(vec![Type::Bool], Type::Unit));
 
     for item in &module.items {
         match item {
             ModuleItem::Fun(fun) => {
-                let params = fun
-                    .params
-                    .iter()
-                    .map(|(_, ty)| resolve_type(ty).unwrap())
-                    .collect::<Vec<_>>();
-                let returns = fun
-                    .returns
-                    .as_ref()
-                    .map(|ty| resolve_type(&ty).unwrap())
-                    .unwrap_or(Type::Unit);
+                let params = fun.params.iter().map(|(_, ty)| resolve_type(ty).unwrap()).collect::<Vec<_>>();
+                let returns = fun.returns.as_ref().map(|ty| resolve_type(&ty).unwrap()).unwrap_or(Type::Unit);
                 env.insert(fun.name.clone(), FunSig::new(params, returns));
             }
         }
@@ -72,6 +62,7 @@ fn main() {
     name_to_fun_value.insert(Ident::new("debug_int"), Value::native_fun(debug_int));
     name_to_fun_value.insert(Ident::new("debug_float"), Value::native_fun(debug_float));
     name_to_fun_value.insert(Ident::new("debug_bool"), Value::native_fun(debug_bool));
+    name_to_fun_value.insert(Ident::new("assert"), Value::native_fun(assert));
 
     for item in &module.items {
         match item {
@@ -132,5 +123,13 @@ fn debug_float<'f>(args: &[Value<'f>]) -> Value<'f> {
 
 fn debug_bool<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_bool());
+    Value::unit()
+}
+
+fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
+    if !args[0].as_bool() {
+        println!("assertion failed!");
+        exit(1);
+    }
     Value::unit()
 }

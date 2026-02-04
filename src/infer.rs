@@ -1,7 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    ast::{self, Block, Else, Expr, Fun, Ident, If, Lit, Stmt, VarDef},
+    ast::{self, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
     scope::Scope,
     typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedStmt, TypedVar, VarId},
 };
@@ -169,10 +169,9 @@ impl<'e> Inferer<'e> {
                     right: Box::new(right_expr),
                 };
 
-                let ty = if op.is_arithmetic() {
-                    left_ty.into()
-                } else {
-                    Type::Bool
+                let ty = match op {
+                    InfixOp::Arith(_) => left_ty.into(),
+                    InfixOp::Comp(_) => Type::Bool,
                 };
 
                 (typed_expr, ty)

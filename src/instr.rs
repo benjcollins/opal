@@ -43,19 +43,11 @@ impl Instr {
 
     pub fn src1(self) -> Val {
         let idx = (self.0 >> 8) as u8;
-        if self.0 >> 25 & 1 == 0 {
-            Val::Reg(Reg(idx))
-        } else {
-            Val::Cst(Cst(idx))
-        }
+        if self.0 >> 25 & 1 == 0 { Val::Reg(Reg(idx)) } else { Val::Cst(Cst(idx)) }
     }
     pub fn src2(self) -> Val {
         let idx = self.0 as u8;
-        if self.0 >> 24 & 1 == 0 {
-            Val::Reg(Reg(idx))
-        } else {
-            Val::Cst(Cst(idx))
-        }
+        if self.0 >> 24 & 1 == 0 { Val::Reg(Reg(idx)) } else { Val::Cst(Cst(idx)) }
     }
     pub fn dst(self) -> Reg {
         Reg((self.0 >> 16) as u8)
@@ -147,16 +139,7 @@ impl fmt::Display for Instr {
         write!(f, "{}", op)?;
         match self.op() {
             Op::MOV => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::IADD
-            | Op::ISUB
-            | Op::IMUL
-            | Op::IDIV
-            | Op::IMOD
-            | Op::FADD
-            | Op::FSUB
-            | Op::FMUL
-            | Op::FDIV
-            | Op::FMOD => self.display_arith_instr(f),
+            Op::IADD | Op::ISUB | Op::IMUL | Op::IDIV | Op::IMOD | Op::FADD | Op::FSUB | Op::FMUL | Op::FDIV | Op::FMOD => self.display_arith_instr(f),
             Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => self.display_branch_instr(f),
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),

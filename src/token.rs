@@ -45,14 +45,19 @@ pub enum Symbol {
     CloseBrace,
     Semicolon,
     Comma,
-    DoubleEquals,
-    Equals,
+    DoubleEqual,
+    Equal,
     Plus,
     Star,
     Percent,
     Slash,
     Minus,
     Colon,
+    NotEqual,
+    LessEqual,
+    Less,
+    GreaterEqual,
+    Greater,
 }
 
 impl Symbol {
@@ -64,7 +69,7 @@ impl Symbol {
             Symbol::CloseBrace => "}",
             Symbol::Semicolon => ";",
             Symbol::Comma => ",",
-            Symbol::Equals => "=",
+            Symbol::Equal => "=",
             Symbol::Plus => "+",
             Symbol::Star => "*",
             Symbol::Percent => "%",
@@ -72,7 +77,12 @@ impl Symbol {
             Symbol::Minus => "-",
             Symbol::Colon => ":",
             Symbol::RightArrow => "->",
-            Symbol::DoubleEquals => "==",
+            Symbol::DoubleEqual => "==",
+            Symbol::Less => "<",
+            Symbol::LessEqual => "<=",
+            Symbol::Greater => ">",
+            Symbol::GreaterEqual => ">=",
+            Symbol::NotEqual => "!=",
         }
     }
 }
