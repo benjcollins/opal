@@ -43,6 +43,7 @@ pub struct Inferer<'e> {
     next_var_id: u32,
     scope: Scope<Ident, Rc<TypedVar>>,
     env: &'e HashMap<Ident, FunSig>,
+    returns: Type,
 }
 
 fn infer_lit(lit: &Lit) -> Type {
@@ -50,6 +51,7 @@ fn infer_lit(lit: &Lit) -> Type {
         Lit::Int(_) => Type::Int,
         Lit::Float(_) => Type::Float,
         Lit::Bool(_) => Type::Bool,
+        Lit::Unit => Type::Unit,
     }
 }
 
@@ -66,13 +68,39 @@ pub fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
 pub struct FunSig {
     pub params: Vec<Type>,
     pub returns: Type,
+    pub native: bool,
+}
+
+impl FunSig {
+    pub fn new(params: Vec<Type>, returns: Type) -> FunSig {
+        FunSig {
+            params,
+            returns,
+            native: false,
+        }
+    }
+    pub fn new_native(params: Vec<Type>, returns: Type) -> FunSig {
+        FunSig {
+            params,
+            returns,
+            native: true,
+        }
+    }
 }
 
 pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()> {
+    let returns = fun
+        .returns
+        .as_ref()
+        .map(|returns| resolve_type(&returns))
+        .transpose()?
+        .unwrap_or(Type::Unit);
+
     let mut inferer = Inferer {
         next_var_id: 0,
         scope: Scope::new(),
         env,
+        returns,
     };
     inferer.scope.enter_block();
     let mut params = vec![];
@@ -85,7 +113,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()
     Ok(TypedFun {
         name: fun.name.clone(),
         params,
-        returns: fun.returns.as_ref().map(|returns| resolve_type(&returns)).transpose()?,
+        returns,
         block,
     })
 }
@@ -108,9 +136,14 @@ impl<'e> Inferer<'e> {
                     arg_tys.push(arg_ty);
                 }
                 if arg_tys != fun_sig.params {
-                    return Err(())
+                    return Err(());
                 }
-                (TypedExpr::Call(name.clone(), typed_args), fun_sig.returns)
+                let expr = TypedExpr::Call {
+                    name: name.clone(),
+                    args: typed_args,
+                    native: fun_sig.native,
+                };
+                (expr, fun_sig.returns)
             }
             Expr::Paren(node) => self.infer_expr(node)?,
             Expr::Var(var) => {
@@ -180,7 +213,20 @@ impl<'e> Inferer<'e> {
                 }
                 TypedStmt::Expr(expr)
             }
-            Stmt::Return(expr) => todo!(),
+            Stmt::Return(expr) => {
+                if let Some(expr) = expr {
+                    let (expr, ty) = self.infer_expr(expr)?;
+                    if ty != self.returns {
+                        return Err(());
+                    }
+                    TypedStmt::Return(expr)
+                } else {
+                    if Type::Unit != self.returns {
+                        return Err(());
+                    }
+                    TypedStmt::Return(TypedExpr::Lit(Lit::Unit))
+                }
+            }
         })
     }
 

@@ -2,8 +2,9 @@ use std::{cell::Cell, collections::HashMap};
 
 use crate::{
     ast::{Ident, InfixOp, Lit},
-    bytecode::{BytecodeBuffer, Cst, Instr, Reg, Val},
+    bytecode::BytecodeBuffer,
     infer::NumericType,
+    instr::{Cst, Instr, Reg, Val},
     typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, VarId},
     vm::Value,
 };
@@ -33,7 +34,7 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (Fun<'f>, Vec<(Ident, u8)>) {
         consts: Vec::new(),
         consts_index: HashMap::new(),
         next_label: 0,
-        stack_top: fun.params.len() as u8,
+        stack_top: 0,
         stack_frames: Vec::new(),
         vars: HashMap::new(),
         fun_ptrs: Vec::new(),
@@ -43,10 +44,13 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (Fun<'f>, Vec<(Ident, u8)>) {
         lowerer.vars.insert(param.id, reg);
     }
     lowerer.lower_block(&fun.block);
-    (Fun {
-        consts: lowerer.consts.into_iter().map(Cell::new).collect(),
-        bytecode: lowerer.bytecode.finish(),
-    }, lowerer.fun_ptrs)
+    (
+        Fun {
+            consts: lowerer.consts.into_iter().map(Cell::new).collect(),
+            bytecode: lowerer.bytecode.finish(),
+        },
+        lowerer.fun_ptrs,
+    )
 }
 
 impl<'f> Lowerer<'f> {
@@ -56,6 +60,11 @@ impl<'f> Lowerer<'f> {
             self.consts.push(value);
             cst
         })
+    }
+    fn fresh_const(&mut self) -> Cst {
+        let cst = Cst(self.consts.len() as u8);
+        self.consts.push(Value::unit());
+        cst
     }
     fn alloc_reg(&mut self) -> Reg {
         let reg = Reg(self.stack_top);
@@ -75,24 +84,11 @@ impl<'f> Lowerer<'f> {
                     &Lit::Int(value) => self.get_const(Value::int(value)),
                     &Lit::Float(value) => self.get_const(Value::float(value)),
                     &Lit::Bool(_) => todo!(),
+                    &Lit::Unit => self.get_const(Value::unit()),
                 };
                 Val::Cst(cst)
             }
             TypedExpr::Var(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
-            TypedExpr::Call(name, args) => {
-                let fun = self.get_const(Value::null());
-                self.fun_ptrs.push((name.clone(), fun.0));
-                let arg_start = self.stack_top;
-                let return_reg = self.alloc_reg();
-                self.enter_stack_frame();
-                for arg in args {
-                    let arg_reg = self.alloc_reg();
-                    self.lower_expr_dst(arg, arg_reg);
-                }
-                self.bytecode.instr().call(Val::Cst(fun), arg_start, args.len() as u8);
-                self.exit_stack_frame();
-                Val::Reg(return_reg)
-            }
             _ => {
                 let dst = self.alloc_reg();
                 self.lower_expr_dst(expr, dst);
@@ -119,6 +115,22 @@ impl<'f> Lowerer<'f> {
                     (InfixOp::Mod, NumericType::Float) => self.bytecode.instr().fmod(dst, src1, src2),
                 };
             }
+            TypedExpr::Call { name, args, native } => {
+                let fun = self.fresh_const();
+                self.fun_ptrs.push((name.clone(), fun.0));
+                let arg_start = self.stack_top;
+                self.enter_stack_frame();
+                for arg in args {
+                    let arg_reg = self.alloc_reg();
+                    self.lower_expr_dst(arg, arg_reg);
+                }
+                if *native {
+                    self.bytecode.instr().calln(dst, Val::Cst(fun), arg_start);
+                } else {
+                    self.bytecode.instr().call(dst, Val::Cst(fun), arg_start);
+                }
+                self.exit_stack_frame();
+            }
             _ => {
                 self.enter_stack_frame();
                 let src = self.lower_expr_val(expr);
@@ -142,6 +154,10 @@ impl<'f> Lowerer<'f> {
                 self.enter_stack_frame();
                 self.lower_expr_val(expr);
                 self.exit_stack_frame();
+            }
+            TypedStmt::Return(expr) => {
+                let val = self.lower_expr_val(expr);
+                self.bytecode.instr().ret(val);
             }
         }
     }

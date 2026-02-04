@@ -29,6 +29,7 @@ pub enum Lit {
     Int(i64),
     Float(f64),
     Bool(bool),
+    Unit,
 }
 
 #[derive(Debug, Clone)]

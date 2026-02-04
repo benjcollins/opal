@@ -19,7 +19,11 @@ pub struct TypedVar {
 #[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
-    Call(Ident, Vec<TypedExpr>),
+    Call {
+        name: Ident,
+        args: Vec<TypedExpr>,
+        native: bool,
+    },
     Var(Rc<TypedVar>),
     Infix {
         left: Box<TypedExpr>,
@@ -34,6 +38,7 @@ pub enum TypedStmt {
     Let { var: Rc<TypedVar>, expr: TypedExpr },
     Assign { var: Rc<TypedVar>, expr: TypedExpr },
     Expr(TypedExpr),
+    Return(TypedExpr),
 }
 
 #[derive(Debug)]
@@ -45,6 +50,6 @@ pub struct TypedBlock {
 pub struct TypedFun {
     pub name: Ident,
     pub params: Vec<Rc<TypedVar>>,
-    pub returns: Option<Type>,
+    pub returns: Type,
     pub block: TypedBlock,
 }

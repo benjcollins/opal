@@ -1,22 +1,29 @@
-use std::{marker::PhantomData, ptr};
+use std::{marker::PhantomData, mem::transmute, ops::Neg, ptr};
 
 use crate::{
-    bytecode::{Instr, Op, Val},
+    instr::{Instr, Op, Val},
     lower::Fun,
 };
 
+pub struct Call<'f> {
+    fun: &'f Fun<'f>,
+    ip: usize,
+}
+
 pub struct VM<'f> {
-    pub bytecode: &'f [Instr],
+    pub call_stack: Vec<Call<'f>>,
+    pub value_stack: Vec<Value<'f>>,
+
+    pub fun: &'f Fun<'f>,
+    pub value_stack_base: usize,
     pub ip: usize,
-    pub regs: Vec<Value<'f>>,
-    pub csts: Vec<Value<'f>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
 
 impl<'f> Value<'f> {
-    pub fn null() -> Value<'f> {
+    pub fn unit() -> Value<'f> {
         Value(0, PhantomData)
     }
     pub fn int(value: i64) -> Value<'f> {
@@ -25,17 +32,23 @@ impl<'f> Value<'f> {
     pub fn float(value: f64) -> Value<'f> {
         Value(value.to_bits(), PhantomData)
     }
-    pub fn fun_ptr(value: &'f Fun) -> Value<'f> {
+    pub fn fun(value: &'f Fun) -> Value<'f> {
         Value(ptr::from_ref(value) as u64, PhantomData)
     }
-    fn as_float(self) -> f64 {
+    pub fn native_fun(fun: fn(&[Value<'f>]) -> Value<'f>) -> Value<'f> {
+        Value(fun as u64, PhantomData)
+    }
+    pub fn as_float(self) -> f64 {
         f64::from_bits(self.0)
     }
-    fn as_int(self) -> i64 {
+    pub fn as_int(self) -> i64 {
         self.0 as i64
     }
-    unsafe fn as_fun_ptr(self) -> &'f Fun<'f> {
+    unsafe fn as_fun(self) -> &'f Fun<'f> {
         unsafe { (self.0 as *const Fun).as_ref().unwrap() }
+    }
+    unsafe fn as_native_fun(self) -> fn(&[Value<'f>]) -> Value<'f> {
+        unsafe { transmute(self.0 as *const ()) }
     }
 }
 
@@ -58,15 +71,15 @@ fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'f>, Value<'f>
 impl<'f> VM<'f> {
     fn read_value(&self, val: Val) -> Value<'f> {
         match val {
-            Val::Reg(reg) => self.regs[reg.0 as usize],
-            Val::Cst(cst) => self.csts[cst.0 as usize],
+            Val::Reg(reg) => self.value_stack[self.value_stack_base + reg.0 as usize],
+            Val::Cst(cst) => self.fun.consts[cst.0 as usize].get(),
         }
     }
 
     fn execute_arith_instr(&mut self, instr: Instr, op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>) {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
-        self.regs[instr.dst().0 as usize] = op(src1, src2);
+        self.value_stack[self.value_stack_base + instr.dst().0 as usize] = op(src1, src2);
         self.ip += 1;
     }
 
@@ -74,21 +87,25 @@ impl<'f> VM<'f> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         if cmp(src1, src2) {
-            self.ip = ((self.ip as isize) + (instr.branch_offset() as isize)) as usize;
+            if instr.branch_offset().is_positive() {
+                self.ip += instr.branch_offset() as usize
+            } else {
+                self.ip -= instr.branch_offset().neg() as usize;
+            }
         } else {
             self.ip += 1;
         }
     }
 
     pub fn execute_next_instr(&mut self) {
-        let instr = self.bytecode[self.ip];
+        let instr = self.fun.bytecode[self.ip];
 
-        println!("{:?}", instr.op());
+        // println!("{}", instr);
 
         match instr.op() {
             Op::MOV => {
                 let src1 = self.read_value(instr.src1());
-                self.regs[instr.dst().0 as usize] = src1;
+                self.value_stack[self.value_stack_base + instr.dst().0 as usize] = src1;
                 self.ip += 1;
             }
 
@@ -112,11 +129,37 @@ impl<'f> VM<'f> {
             Op::FBLE => self.execute_branch_instr(instr, float_cmp(|a, b| a <= b)),
 
             Op::JMP => {
-                self.ip = ((self.ip as isize) + (instr.jump_offset() as isize)) as usize;
+                if instr.jump_offset().is_positive() {
+                    self.ip += instr.jump_offset() as usize;
+                } else {
+                    self.ip -= instr.jump_offset().neg() as usize;
+                }
             }
-
-            Op::CALL => todo!(),
-            Op::RET => todo!(),
+            Op::CALL => {
+                self.call_stack.push(Call {
+                    fun: self.fun,
+                    ip: self.ip,
+                });
+                self.value_stack_base += instr.args_start() as usize;
+                self.fun = unsafe { self.read_value(instr.src1()).as_fun() };
+                self.ip = 0;
+            }
+            Op::CALLN => {
+                let fun = unsafe { self.read_value(instr.src1()).as_native_fun() };
+                let args_start = instr.args_start() as usize;
+                let args = &self.value_stack[self.value_stack_base + args_start..];
+                self.value_stack[self.value_stack_base + instr.dst().0 as usize] = fun(args);
+                self.ip += 1;
+            }
+            Op::RET => {
+                let src = self.read_value(instr.src1());
+                let prev_call = self.call_stack.pop().unwrap();
+                self.fun = prev_call.fun;
+                self.ip = prev_call.ip + 1;
+                let call_instr = self.fun.bytecode[prev_call.ip];
+                self.value_stack_base -= call_instr.args_start() as usize;
+                self.value_stack[self.value_stack_base + call_instr.dst().0 as usize] = src;
+            }
         }
     }
 }
