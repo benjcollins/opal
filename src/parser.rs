@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Block, Expr, Fun, Ident, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef, VarUse},
+    ast::{Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef, VarUse},
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenType},
 };
@@ -56,7 +56,7 @@ pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
         return Ok(Expr::Lit(Lit::Float(value)));
     }
     if parser.consume2(Symbol::OpenParen) {
-        let expr = parse_expr(parser)?;
+        let expr = parse_expr(parser, 0)?;
         parser.expect(Symbol::CloseParen)?;
         return Ok(Expr::Paren(Box::new(expr)));
     }
@@ -74,36 +74,41 @@ pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
 
 pub fn parse_value_ident(parser: &mut Parser, ident: Ident) -> Result<Expr, ()> {
     if parser.consume2(Symbol::OpenParen) {
-        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| parse_expr(parser))?;
+        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| parse_expr(parser, 0))?;
         return Ok(Expr::Call(ident, args));
     } else {
         return Ok(Expr::Var(VarUse(ident)));
     }
 }
 
-pub fn parse_expr(parser: &mut Parser) -> Result<Expr, ()> {
+type Prec = u8;
+
+pub fn parse_expr(parser: &mut Parser, prec: Prec) -> Result<Expr, ()> {
     let left = parse_value(parser)?;
-    parse_infix(parser, left)
+    parse_infix(parser, left, prec)
 }
 
-pub fn parse_infix(parser: &mut Parser, mut left: Expr) -> Result<Expr, ()> {
-    const INFIX_OPS: &[(Symbol, InfixOp)] = &[
-        (Symbol::Plus, InfixOp::Add),
-        (Symbol::Minus, InfixOp::Subtract),
-        (Symbol::Star, InfixOp::Multiply),
-        (Symbol::Slash, InfixOp::Divide),
-        (Symbol::Percent, InfixOp::Mod),
+pub fn parse_infix(parser: &mut Parser, mut left: Expr, prec: Prec) -> Result<Expr, ()> {
+    const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
+        (Symbol::Star, InfixOp::Multiply, 3),
+        (Symbol::Slash, InfixOp::Divide, 3),
+        (Symbol::Percent, InfixOp::Mod, 3),
+
+        (Symbol::Plus, InfixOp::Add, 2),
+        (Symbol::Minus, InfixOp::Subtract, 2),
+
+        (Symbol::DoubleEquals, InfixOp::Equals, 1),
     ];
-    loop {
-        for (symbol, infix_op) in INFIX_OPS {
-            if parser.consume2(*symbol) {
-                let right = parse_value(parser)?;
+    'outer: loop {
+        for (symbol, infix_op, op_prec) in INFIX_OPS {
+            if *op_prec > prec && parser.consume2(*symbol) {
+                let right = parse_expr(parser, *op_prec)?;
                 left = Expr::Infix {
                     left: Box::new(left),
                     op: *infix_op,
                     right: Box::new(right),
                 };
-                continue;
+                continue 'outer;
             }
         }
         break;
@@ -117,16 +122,33 @@ pub fn parse_var_def(parser: &mut Parser) -> Result<VarDef, ()> {
     Ok(VarDef { mutable, ident })
 }
 
+pub fn parse_if(parser: &mut Parser) -> Result<If, ()> {
+    parser.expect(Symbol::OpenParen)?;
+    let cond = parse_expr(parser, 0)?;
+    parser.expect(Symbol::CloseParen)?;
+    let if_block = parse_block(parser)?;
+    let else_ = if parser.consume2(Keyword::Else) {
+        if parser.consume2(Keyword::If) {
+            Else::If(Box::new(parse_if(parser)?))
+        } else {
+            Else::Block(parse_block(parser)?)
+        }
+    } else {
+        Else::Nothing
+    };
+    Ok(If { cond, if_block, else_ })
+}
+
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
     if parser.consume2(Keyword::Let) {
         let var = parse_var_def(parser)?;
         parser.expect(Symbol::Equals)?;
-        let expr = parse_expr(parser)?;
+        let expr = parse_expr(parser, 0)?;
         parser.expect(Symbol::Semicolon)?;
         Ok(Stmt::Let { var, expr })
     } else if parser.consume2(Keyword::Return) {
         let expr = (!parser.consume2(Symbol::Semicolon)).then(|| {
-            let expr = parse_expr(parser)?;
+            let expr = parse_expr(parser, 0)?;
             parser.expect(Symbol::Semicolon)?;
             Ok(expr)
         }).transpose()?;
@@ -135,17 +157,19 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
         if parser.consume2(Symbol::Equals) {
             parser.expect(Symbol::Equals)?;
             let var = VarUse(Ident::new(ident));
-            let expr = parse_expr(parser)?;
+            let expr = parse_expr(parser, 0)?;
             parser.expect(Symbol::Semicolon)?;
             Ok(Stmt::Assign { var, expr })
         } else {
             let left = parse_value_ident(parser, Ident::new(ident))?;
-            let expr = parse_infix(parser, left)?;
+            let expr = parse_infix(parser, left, 0)?;
             parser.expect(Symbol::Semicolon)?;
             Ok(Stmt::Expr(expr))
         }
+    } else if parser.consume2(Keyword::If) {
+        Ok(Stmt::If(parse_if(parser)?))
     } else {
-        Ok(Stmt::Expr(parse_expr(parser)?))
+        Ok(Stmt::Expr(parse_expr(parser, 0)?))
     }
 }
 

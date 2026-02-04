@@ -32,6 +32,8 @@ pub enum Keyword {
     Module,
     Mut,
     Return,
+    If,
+    Else,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
@@ -43,6 +45,7 @@ pub enum Symbol {
     CloseBrace,
     Semicolon,
     Comma,
+    DoubleEquals,
     Equals,
     Plus,
     Star,
@@ -69,6 +72,7 @@ impl Symbol {
             Symbol::Minus => "-",
             Symbol::Colon => ":",
             Symbol::RightArrow => "->",
+            Symbol::DoubleEquals => "==",
         }
     }
 }

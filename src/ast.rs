@@ -52,6 +52,23 @@ pub enum InfixOp {
     Multiply,
     Divide,
     Mod,
+
+    Equals,
+}
+
+impl InfixOp {
+    pub fn is_comparison(&self) -> bool {
+        match self {
+            InfixOp::Equals => true,
+            _ => false,
+        }
+    }
+    pub fn is_arithmetic(&self) -> bool {
+        match self {
+            InfixOp::Add | InfixOp::Subtract | InfixOp::Multiply | InfixOp::Divide | InfixOp::Mod => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,14 +77,29 @@ pub enum Stmt {
     Assign { var: VarUse, expr: Expr },
     Return(Option<Expr>),
     Expr(Expr),
+    If(If),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct If {
+    pub cond: Expr,
+    pub if_block: Block,
+    pub else_: Else,
+}
+
+#[derive(Debug, Clone)]
+pub enum Else {
+    If(Box<If>),
+    Block(Block),
+    Nothing,
+}
+
+#[derive(Debug, Clone)]
 pub struct Block {
     pub stmts: Vec<Stmt>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Type(pub Ident);
 
 #[derive(Debug)]

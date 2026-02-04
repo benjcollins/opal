@@ -1,13 +1,10 @@
 module main;
 
 fun main() {
-    let x = sum(100);
-    debug_int(x);
-    debug_int(x + 2);
+    if (2 == 2) {
+        debug_int(1);
+    } else {
+        debug_int(2);
+    }
     return;
-}
-
-fun sum(n: Int) -> Int {
-    let num = n * (n + 1);
-    return num / 2;
 }

@@ -39,11 +39,11 @@ fn main() {
         }
     };
 
-    println!("{:#?}", module);
-
     let mut env = HashMap::new();
 
     env.insert(Ident::new("debug_int"), FunSig::new_native(vec![Type::Int], Type::Unit));
+    env.insert(Ident::new("debug_float"), FunSig::new_native(vec![Type::Float], Type::Unit));
+    env.insert(Ident::new("debug_bool"), FunSig::new_native(vec![Type::Bool], Type::Unit));
 
     for item in &module.items {
         match item {
@@ -65,11 +65,13 @@ fn main() {
 
     let funs = FrozenVec::new();
 
+    let mut name_to_fun = HashMap::new();
     let mut name_to_fun_value = HashMap::new();
     let mut funs_to_patch = vec![];
-    let mut main_fun = None;
 
     name_to_fun_value.insert(Ident::new("debug_int"), Value::native_fun(debug_int));
+    name_to_fun_value.insert(Ident::new("debug_float"), Value::native_fun(debug_float));
+    name_to_fun_value.insert(Ident::new("debug_bool"), Value::native_fun(debug_bool));
 
     for item in &module.items {
         match item {
@@ -77,18 +79,20 @@ fn main() {
                 let typed_fun = infer_fun(fun, &env).unwrap();
                 // println!("{:#?}", typed_fun);
                 let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
-                println!("FUN {}:", fun.name.0);
-                for instr in &compiled_fun.bytecode {
-                    println!("  {}", instr);
-                }
                 let fun_ref = funs.push_get(Box::new(compiled_fun));
                 funs_to_patch.push((fun_ref, fun_ptrs));
                 name_to_fun_value.insert(fun.name.clone(), Value::fun(fun_ref));
-                if fun.name == Ident::new("main") {
-                    main_fun = Some(fun_ref);
-                }
+                name_to_fun.insert(fun.name.clone(), fun_ref);
             }
         }
+    }
+
+    for (name, fun) in &name_to_fun {
+        println!("FUN {}:", name.0);
+        for instr in &fun.bytecode {
+            println!("  {}", instr);
+        }
+        println!();
     }
 
     for (fun_to_patch, fun_ptrs) in funs_to_patch {
@@ -101,12 +105,13 @@ fn main() {
     let mut vm = VM {
         call_stack: Vec::new(),
         value_stack: vec![Value::unit(); 1024],
-        fun: main_fun.unwrap(),
+        fun: name_to_fun.get(&Ident::new("main")).unwrap(),
         value_stack_base: 0,
         ip: 0,
+        running: true,
     };
 
-    loop {
+    while vm.running {
         vm.execute_next_instr();
         // println!(
         //     "{:?}",
@@ -117,5 +122,15 @@ fn main() {
 
 fn debug_int<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_int());
+    Value::unit()
+}
+
+fn debug_float<'f>(args: &[Value<'f>]) -> Value<'f> {
+    println!("{}", args[0].as_float());
+    Value::unit()
+}
+
+fn debug_bool<'f>(args: &[Value<'f>]) -> Value<'f> {
+    println!("{}", args[0].as_bool());
     Value::unit()
 }

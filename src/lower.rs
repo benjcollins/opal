@@ -5,7 +5,7 @@ use crate::{
     bytecode::BytecodeBuffer,
     infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
-    typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, VarId},
+    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedStmt, VarId},
     vm::Value,
 };
 
@@ -77,13 +77,18 @@ impl<'f> Lowerer<'f> {
     fn exit_stack_frame(&mut self) {
         self.stack_top = self.stack_frames.pop().unwrap();
     }
+    fn new_label(&mut self) -> Label {
+        let label = Label(self.next_label);
+        self.next_label += 1;
+        label
+    }
     fn lower_expr_val(&mut self, expr: &TypedExpr) -> Val {
         match expr {
             TypedExpr::Lit(lit) => {
                 let cst = match lit {
                     &Lit::Int(value) => self.get_const(Value::int(value)),
                     &Lit::Float(value) => self.get_const(Value::float(value)),
-                    &Lit::Bool(_) => todo!(),
+                    &Lit::Bool(value) => self.get_const(Value::bool(value)),
                     &Lit::Unit => self.get_const(Value::unit()),
                 };
                 Val::Cst(cst)
@@ -93,6 +98,23 @@ impl<'f> Lowerer<'f> {
                 let dst = self.alloc_reg();
                 self.lower_expr_dst(expr, dst);
                 Val::Reg(dst)
+            }
+        }
+    }
+    fn lower_expr_branch(&mut self, expr: &TypedExpr, label: Label) {
+        match expr {
+            TypedExpr::Infix { left, right, op, ty } if op.is_comparison() => {
+                let src1 = self.lower_expr_val(left);
+                let src2 = self.lower_expr_val(right);
+                match (op, ty) {
+                    (InfixOp::Equals, _) => self.bytecode.instr().beq(src1, src2, label),
+                    _ => unreachable!()
+                }
+            }
+            _ => {
+                let val = self.lower_expr_val(expr);
+                let true_const = self.get_const(Value::bool(true));
+                self.bytecode.instr().beq(val, Val::Cst(true_const), label);
             }
         }
     }
@@ -113,6 +135,22 @@ impl<'f> Lowerer<'f> {
                     (InfixOp::Multiply, NumericType::Float) => self.bytecode.instr().fmul(dst, src1, src2),
                     (InfixOp::Divide, NumericType::Float) => self.bytecode.instr().fdiv(dst, src1, src2),
                     (InfixOp::Mod, NumericType::Float) => self.bytecode.instr().fmod(dst, src1, src2),
+                    
+                    (InfixOp::Equals, NumericType::Int) => {
+                        let if_true = self.new_label();
+                        let if_false = self.new_label();
+                        
+                        let true_const = self.get_const(Value::bool(true));
+                        let false_const = self.get_const(Value::bool(false));
+
+                        self.bytecode.instr().beq(src1, src2, if_true);
+                        self.bytecode.instr().mov(dst, Val::Cst(false_const));
+                        self.bytecode.instr().jmp(if_false);
+                        self.bytecode.label(if_true);
+                        self.bytecode.instr().mov(dst, Val::Cst(true_const));
+                        self.bytecode.label(if_false);
+                    }
+                    (InfixOp::Equals, NumericType::Float) => todo!(),
                 };
             }
             TypedExpr::Call { name, args, native } => {
@@ -159,7 +197,24 @@ impl<'f> Lowerer<'f> {
                 let val = self.lower_expr_val(expr);
                 self.bytecode.instr().ret(val);
             }
+            TypedStmt::If(if_) => self.lower_if(if_),
         }
+    }
+    pub fn lower_if(&mut self, if_: &TypedIf) {
+            let if_true = self.new_label();
+            let if_false = self.new_label();
+
+            self.lower_expr_branch(&if_.cond, if_true);
+            match &if_.else_ {
+                TypedElse::If(if_) => self.lower_if(if_),
+                TypedElse::Block(block) => self.lower_block(block),
+                TypedElse::Nothing => (),
+            }
+            self.bytecode.instr().jmp(if_false);
+
+            self.bytecode.label(if_true);
+            self.lower_block(&if_.if_block);
+            self.bytecode.label(if_false);
     }
     pub fn lower_block(&mut self, block: &TypedBlock) {
         self.enter_stack_frame();

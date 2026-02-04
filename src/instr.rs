@@ -100,6 +100,9 @@ impl Instr {
     fn display_arith_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
     }
+    fn display_branch_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,13 +157,8 @@ impl fmt::Display for Instr {
             | Op::FMUL
             | Op::FDIV
             | Op::FMOD => self.display_arith_instr(f),
-            Op::BEQ => todo!(),
-            Op::BNE => todo!(),
-            Op::IBLT => todo!(),
-            Op::IBLE => todo!(),
-            Op::FBLT => todo!(),
-            Op::FBLE => todo!(),
-            Op::JMP => todo!(),
+            Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => self.display_branch_instr(f),
+            Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),
             Op::CALLN => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),

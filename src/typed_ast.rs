@@ -39,14 +39,29 @@ pub enum TypedStmt {
     Assign { var: Rc<TypedVar>, expr: TypedExpr },
     Expr(TypedExpr),
     Return(TypedExpr),
+    If(TypedIf),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct TypedIf {
+    pub cond: TypedExpr,
+    pub if_block: TypedBlock,
+    pub else_: TypedElse,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypedElse {
+    If(Box<TypedIf>),
+    Block(TypedBlock),
+    Nothing,
+}
+
+#[derive(Debug, Clone)]
 pub struct TypedBlock {
     pub stmts: Vec<TypedStmt>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypedFun {
     pub name: Ident,
     pub params: Vec<Rc<TypedVar>>,

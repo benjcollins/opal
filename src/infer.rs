@@ -1,9 +1,9 @@
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    ast::{self, Block, Expr, Fun, Ident, Lit, Stmt, VarDef},
+    ast::{self, Block, Else, Expr, Fun, Ident, If, Lit, Stmt, VarDef},
     scope::Scope,
-    typed_ast::{TypedBlock, TypedExpr, TypedFun, TypedStmt, TypedVar, VarId},
+    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedStmt, TypedVar, VarId},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +169,11 @@ impl<'e> Inferer<'e> {
                     right: Box::new(right_expr),
                 };
 
-                let ty = left_ty.into();
+                let ty = if op.is_arithmetic() {
+                    left_ty.into()
+                } else {
+                    Type::Bool
+                };
 
                 (typed_expr, ty)
             }
@@ -227,7 +231,22 @@ impl<'e> Inferer<'e> {
                     TypedStmt::Return(TypedExpr::Lit(Lit::Unit))
                 }
             }
+            Stmt::If(if_) => TypedStmt::If(self.infer_if(if_)?),
         })
+    }
+
+    fn infer_if(&mut self, if_: &If) -> Result<TypedIf, ()> {
+        let (cond, ty) = self.infer_expr(&if_.cond)?;
+        if ty != Type::Bool {
+            return Err(());
+        }
+        let if_block = self.infer_block(&if_.if_block)?;
+        let else_ = match &if_.else_ {
+            Else::If(if_) => TypedElse::If(Box::new(self.infer_if(if_)?)),
+            Else::Block(block) => TypedElse::Block(self.infer_block(block)?),
+            Else::Nothing => TypedElse::Nothing,
+        };
+        Ok(TypedIf { cond, if_block, else_ })
     }
 
     fn infer_block(&mut self, block: &Block) -> Result<TypedBlock, ()> {

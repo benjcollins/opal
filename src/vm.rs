@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, mem::transmute, ops::Neg, ptr};
 
 use crate::{
-    instr::{Instr, Op, Val},
+    instr::{Instr, Op, Reg, Val},
     lower::Fun,
 };
 
@@ -17,6 +17,7 @@ pub struct VM<'f> {
     pub fun: &'f Fun<'f>,
     pub value_stack_base: usize,
     pub ip: usize,
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,16 +39,22 @@ impl<'f> Value<'f> {
     pub fn native_fun(fun: fn(&[Value<'f>]) -> Value<'f>) -> Value<'f> {
         Value(fun as u64, PhantomData)
     }
+    pub fn bool(value: bool) -> Value<'f> {
+        Value(value as u64, PhantomData)
+    }
     pub fn as_float(self) -> f64 {
         f64::from_bits(self.0)
     }
     pub fn as_int(self) -> i64 {
         self.0 as i64
     }
-    unsafe fn as_fun(self) -> &'f Fun<'f> {
+    pub fn as_bool(self) -> bool {
+        self.0 != 0
+    }
+    pub unsafe fn as_fun(self) -> &'f Fun<'f> {
         unsafe { (self.0 as *const Fun).as_ref().unwrap() }
     }
-    unsafe fn as_native_fun(self) -> fn(&[Value<'f>]) -> Value<'f> {
+    pub unsafe fn as_native_fun(self) -> fn(&[Value<'f>]) -> Value<'f> {
         unsafe { transmute(self.0 as *const ()) }
     }
 }
@@ -76,10 +83,14 @@ impl<'f> VM<'f> {
         }
     }
 
+    fn write_reg(&mut self, reg: Reg, val: Value<'f>) {
+        self.value_stack[self.value_stack_base + reg.0 as usize] = val;
+    }
+
     fn execute_arith_instr(&mut self, instr: Instr, op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>) {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
-        self.value_stack[self.value_stack_base + instr.dst().0 as usize] = op(src1, src2);
+        self.write_reg(instr.dst(), op(src1, src2));
         self.ip += 1;
     }
 
@@ -100,12 +111,10 @@ impl<'f> VM<'f> {
     pub fn execute_next_instr(&mut self) {
         let instr = self.fun.bytecode[self.ip];
 
-        // println!("{}", instr);
-
         match instr.op() {
             Op::MOV => {
                 let src1 = self.read_value(instr.src1());
-                self.value_stack[self.value_stack_base + instr.dst().0 as usize] = src1;
+                self.write_reg(instr.dst(), src1);
                 self.ip += 1;
             }
 
@@ -148,17 +157,20 @@ impl<'f> VM<'f> {
                 let fun = unsafe { self.read_value(instr.src1()).as_native_fun() };
                 let args_start = instr.args_start() as usize;
                 let args = &self.value_stack[self.value_stack_base + args_start..];
-                self.value_stack[self.value_stack_base + instr.dst().0 as usize] = fun(args);
+                self.write_reg(instr.dst(), fun(args));
                 self.ip += 1;
             }
             Op::RET => {
+                let Some(prev_call) = self.call_stack.pop() else {
+                    self.running = false;
+                    return;
+                };
                 let src = self.read_value(instr.src1());
-                let prev_call = self.call_stack.pop().unwrap();
                 self.fun = prev_call.fun;
                 self.ip = prev_call.ip + 1;
                 let call_instr = self.fun.bytecode[prev_call.ip];
                 self.value_stack_base -= call_instr.args_start() as usize;
-                self.value_stack[self.value_stack_base + call_instr.dst().0 as usize] = src;
+                self.write_reg(call_instr.dst(), src);
             }
         }
     }
