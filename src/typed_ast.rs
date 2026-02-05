@@ -22,7 +22,6 @@ pub enum TypedExpr {
     Call {
         name: Ident,
         args: Vec<TypedExpr>,
-        native: bool,
     },
     Var(Rc<TypedVar>),
     Infix {

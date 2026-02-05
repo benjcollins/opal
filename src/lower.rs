@@ -63,7 +63,7 @@ impl<'f> Lowerer<'f> {
     }
     fn fresh_const(&mut self) -> Cst {
         let cst = Cst(self.consts.len() as u8);
-        self.consts.push(Value::unit());
+        self.consts.push(Value::from_unit());
         cst
     }
     fn alloc_reg(&mut self) -> Reg {
@@ -86,10 +86,10 @@ impl<'f> Lowerer<'f> {
         match expr {
             TypedExpr::Lit(lit) => {
                 let cst = match lit {
-                    &Lit::Int(value) => self.get_const(Value::int(value)),
-                    &Lit::Float(value) => self.get_const(Value::float(value)),
-                    &Lit::Bool(value) => self.get_const(Value::bool(value)),
-                    &Lit::Unit => self.get_const(Value::unit()),
+                    &Lit::Int(value) => self.get_const(Value::from_int(value)),
+                    &Lit::Float(value) => self.get_const(Value::from_float(value)),
+                    &Lit::Bool(value) => self.get_const(Value::from_bool(value)),
+                    &Lit::Unit => self.get_const(Value::from_unit()),
                 };
                 Val::Cst(cst)
             }
@@ -101,14 +101,7 @@ impl<'f> Lowerer<'f> {
             }
         }
     }
-    fn lower_expr_comp_branch(
-        &mut self,
-        left: &TypedExpr,
-        right: &TypedExpr,
-        op: CompOp,
-        label: Label,
-        ty: NumericType,
-    ) {
+    fn lower_expr_comp_branch(&mut self, left: &TypedExpr, right: &TypedExpr, op: CompOp, label: Label, ty: NumericType) {
         let src1 = self.lower_expr_val(left);
         let src2 = self.lower_expr_val(right);
         match (op, ty) {
@@ -136,7 +129,7 @@ impl<'f> Lowerer<'f> {
             } => self.lower_expr_comp_branch(left, right, *op, label, *ty),
             _ => {
                 let val = self.lower_expr_val(expr);
-                let true_const = self.get_const(Value::bool(true));
+                let true_const = self.get_const(Value::from_bool(true));
                 self.bytecode.instr().beq(val, Val::Cst(true_const), label);
             }
         }
@@ -174,8 +167,8 @@ impl<'f> Lowerer<'f> {
                 let if_true = self.new_label();
                 let if_false = self.new_label();
 
-                let true_const = self.get_const(Value::bool(true));
-                let false_const = self.get_const(Value::bool(false));
+                let true_const = self.get_const(Value::from_bool(true));
+                let false_const = self.get_const(Value::from_bool(false));
 
                 self.lower_expr_comp_branch(left, right, *op, if_true, *ty);
                 self.bytecode.instr().mov(dst, Val::Cst(false_const));
@@ -184,7 +177,7 @@ impl<'f> Lowerer<'f> {
                 self.bytecode.instr().mov(dst, Val::Cst(true_const));
                 self.bytecode.label(if_false);
             }
-            TypedExpr::Call { name, args, native } => {
+            TypedExpr::Call { name, args } => {
                 let fun = self.fresh_const();
                 self.fun_ptrs.push((name.clone(), fun.0));
                 let arg_start = self.stack_top;
@@ -193,11 +186,7 @@ impl<'f> Lowerer<'f> {
                     let arg_reg = self.alloc_reg();
                     self.lower_expr_dst(arg, arg_reg);
                 }
-                if *native {
-                    self.bytecode.instr().calln(dst, Val::Cst(fun), arg_start);
-                } else {
-                    self.bytecode.instr().call(dst, Val::Cst(fun), arg_start);
-                }
+                self.bytecode.instr().call(dst, Val::Cst(fun), arg_start);
                 self.exit_stack_frame();
             }
             _ => {

@@ -29,7 +29,6 @@ pub enum Op {
     JMP,
 
     CALL,
-    CALLN,
     RET,
 }
 
@@ -144,7 +143,6 @@ impl fmt::Display for Instr {
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),
-            Op::CALLN => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
         }?;
         write!(f, ";")
     }

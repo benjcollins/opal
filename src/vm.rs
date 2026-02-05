@@ -24,23 +24,23 @@ pub struct VM<'f> {
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
 
 impl<'f> Value<'f> {
-    pub fn unit() -> Value<'f> {
+    pub fn from_unit() -> Value<'f> {
         Value(0, PhantomData)
     }
-    pub fn int(value: i64) -> Value<'f> {
+    pub fn from_int(value: i64) -> Value<'f> {
         Value(value as u64, PhantomData)
     }
-    pub fn float(value: f64) -> Value<'f> {
+    pub fn from_float(value: f64) -> Value<'f> {
         Value(value.to_bits(), PhantomData)
     }
-    pub fn fun(value: &'f Fun) -> Value<'f> {
+    pub fn from_bool(value: bool) -> Value<'f> {
+        Value(value as u64, PhantomData)
+    }
+    pub fn from_fun(value: &'f Fun) -> Value<'f> {
         Value(ptr::from_ref(value) as u64, PhantomData)
     }
-    pub fn native_fun(fun: fn(&[Value<'f>]) -> Value<'f>) -> Value<'f> {
-        Value(fun as u64, PhantomData)
-    }
-    pub fn bool(value: bool) -> Value<'f> {
-        Value(value as u64, PhantomData)
+    pub fn from_native_fun(fun: fn(&[Value<'f>]) -> Value<'f>) -> Value<'f> {
+        Value(fun as u64 | 1 << 63, PhantomData)
     }
     pub fn as_float(self) -> f64 {
         f64::from_bits(self.0)
@@ -51,20 +51,29 @@ impl<'f> Value<'f> {
     pub fn as_bool(self) -> bool {
         self.0 != 0
     }
-    pub unsafe fn as_fun(self) -> &'f Fun<'f> {
-        unsafe { (self.0 as *const Fun).as_ref().unwrap() }
+    pub unsafe fn as_fun(self) -> FunKind<'f> {
+        unsafe {
+            if self.0 >> 63 == 1 {
+                let ptr = self.0 & !(1 << 63);
+                FunKind::Native(transmute(ptr as *const ()))
+            } else {
+                FunKind::UserDefined((self.0 as *const Fun).as_ref().unwrap())
+            }
+        }
     }
-    pub unsafe fn as_native_fun(self) -> fn(&[Value<'f>]) -> Value<'f> {
-        unsafe { transmute(self.0 as *const ()) }
-    }
+}
+
+pub enum FunKind<'f> {
+    Native(fn(&[Value<'f>]) -> Value<'f>),
+    UserDefined(&'f Fun<'f>),
 }
 
 fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
-    move |a, b| Value::int(op(a.as_int(), b.as_int()))
+    move |a, b| Value::from_int(op(a.as_int(), b.as_int()))
 }
 
 fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
-    move |a, b| Value::float(op(a.as_float(), b.as_float()))
+    move |a, b| Value::from_float(op(a.as_float(), b.as_float()))
 }
 
 fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
@@ -111,6 +120,8 @@ impl<'f> VM<'f> {
     pub fn execute_next_instr(&mut self) {
         let instr = self.fun.bytecode[self.ip];
 
+        // println!("{}", instr);
+
         match instr.op() {
             Op::MOV => {
                 let src1 = self.read_value(instr.src1());
@@ -145,20 +156,21 @@ impl<'f> VM<'f> {
                 }
             }
             Op::CALL => {
-                self.call_stack.push(Call {
-                    fun: self.fun,
-                    ip: self.ip,
-                });
-                self.value_stack_base += instr.args_start() as usize;
-                self.fun = unsafe { self.read_value(instr.src1()).as_fun() };
-                self.ip = 0;
-            }
-            Op::CALLN => {
-                let fun = unsafe { self.read_value(instr.src1()).as_native_fun() };
-                let args_start = instr.args_start() as usize;
-                let args = &self.value_stack[self.value_stack_base + args_start..];
-                self.write_reg(instr.dst(), fun(args));
-                self.ip += 1;
+                let fun = unsafe { self.read_value(instr.src1()).as_fun() };
+                match fun {
+                    FunKind::Native(fun) => {
+                        let args_start = instr.args_start() as usize;
+                        let args = &self.value_stack[self.value_stack_base + args_start..];
+                        self.write_reg(instr.dst(), fun(args));
+                        self.ip += 1;
+                    }
+                    FunKind::UserDefined(fun) => {
+                        self.call_stack.push(Call { fun: self.fun, ip: self.ip });
+                        self.value_stack_base += instr.args_start() as usize;
+                        self.fun = fun;
+                        self.ip = 0;
+                    }
+                }
             }
             Op::RET => {
                 let Some(prev_call) = self.call_stack.pop() else {

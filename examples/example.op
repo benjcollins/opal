@@ -1,9 +1,27 @@
 module main;
 
 fun main() {
-    assert(sum(10) == 55);
-    assert(fib(5) == 8);
+    let s = sum(10);
+    debug_int(s);
+    assert(s == 55);
+
+    let f = fib(5);
+    debug_int(f);
+    assert(f == 8);
+
+    let g = gcd(10, 15);
+    debug_int(g);
+    assert(g == 5);
+
     return;
+}
+
+fun gcd(a: Int, b: Int) -> Int {
+    if (b == 0) {
+        return a;
+    } else {
+        return gcd(b, a % b);
+    }
 }
 
 fun sum(n: Int) -> Int {

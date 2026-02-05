@@ -68,33 +68,16 @@ pub fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
 pub struct FunSig {
     pub params: Vec<Type>,
     pub returns: Type,
-    pub native: bool,
 }
 
 impl FunSig {
     pub fn new(params: Vec<Type>, returns: Type) -> FunSig {
-        FunSig {
-            params,
-            returns,
-            native: false,
-        }
-    }
-    pub fn new_native(params: Vec<Type>, returns: Type) -> FunSig {
-        FunSig {
-            params,
-            returns,
-            native: true,
-        }
+        FunSig { params, returns }
     }
 }
 
 pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()> {
-    let returns = fun
-        .returns
-        .as_ref()
-        .map(|returns| resolve_type(&returns))
-        .transpose()?
-        .unwrap_or(Type::Unit);
+    let returns = fun.returns.as_ref().map(|returns| resolve_type(&returns)).transpose()?.unwrap_or(Type::Unit);
 
     let mut inferer = Inferer {
         next_var_id: 0,
@@ -141,7 +124,6 @@ impl<'e> Inferer<'e> {
                 let expr = TypedExpr::Call {
                     name: name.clone(),
                     args: typed_args,
-                    native: fun_sig.native,
                 };
                 (expr, fun_sig.returns)
             }

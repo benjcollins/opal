@@ -92,13 +92,6 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.instr.set_args_start(args_start);
     }
 
-    pub fn calln(mut self, dst: Reg, fun: Val, args_start: u8) {
-        self.instr.set_op(Op::CALLN);
-        self.instr.set_dst(dst);
-        self.instr.set_src1(fun);
-        self.instr.set_args_start(args_start);
-    }
-
     pub fn ret(mut self, src: Val) {
         self.instr.set_op(Op::RET);
         self.instr.set_src1(src);

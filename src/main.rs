@@ -38,10 +38,10 @@ fn main() {
 
     let mut env = HashMap::new();
 
-    env.insert(Ident::new("debug_int"), FunSig::new_native(vec![Type::Int], Type::Unit));
-    env.insert(Ident::new("debug_float"), FunSig::new_native(vec![Type::Float], Type::Unit));
-    env.insert(Ident::new("debug_bool"), FunSig::new_native(vec![Type::Bool], Type::Unit));
-    env.insert(Ident::new("assert"), FunSig::new_native(vec![Type::Bool], Type::Unit));
+    env.insert(Ident::new("debug_int"), FunSig::new(vec![Type::Int], Type::Unit));
+    env.insert(Ident::new("debug_float"), FunSig::new(vec![Type::Float], Type::Unit));
+    env.insert(Ident::new("debug_bool"), FunSig::new(vec![Type::Bool], Type::Unit));
+    env.insert(Ident::new("assert"), FunSig::new(vec![Type::Bool], Type::Unit));
 
     for item in &module.items {
         match item {
@@ -59,10 +59,10 @@ fn main() {
     let mut name_to_fun_value = HashMap::new();
     let mut funs_to_patch = vec![];
 
-    name_to_fun_value.insert(Ident::new("debug_int"), Value::native_fun(debug_int));
-    name_to_fun_value.insert(Ident::new("debug_float"), Value::native_fun(debug_float));
-    name_to_fun_value.insert(Ident::new("debug_bool"), Value::native_fun(debug_bool));
-    name_to_fun_value.insert(Ident::new("assert"), Value::native_fun(assert));
+    name_to_fun_value.insert(Ident::new("debug_int"), Value::from_native_fun(debug_int));
+    name_to_fun_value.insert(Ident::new("debug_float"), Value::from_native_fun(debug_float));
+    name_to_fun_value.insert(Ident::new("debug_bool"), Value::from_native_fun(debug_bool));
+    name_to_fun_value.insert(Ident::new("assert"), Value::from_native_fun(assert));
 
     for item in &module.items {
         match item {
@@ -72,7 +72,7 @@ fn main() {
                 let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
                 let fun_ref = funs.push_get(Box::new(compiled_fun));
                 funs_to_patch.push((fun_ref, fun_ptrs));
-                name_to_fun_value.insert(fun.name.clone(), Value::fun(fun_ref));
+                name_to_fun_value.insert(fun.name.clone(), Value::from_fun(fun_ref));
                 name_to_fun.insert(fun.name.clone(), fun_ref);
             }
         }
@@ -95,12 +95,14 @@ fn main() {
 
     let mut vm = VM {
         call_stack: Vec::new(),
-        value_stack: vec![Value::unit(); 1024],
+        value_stack: vec![Value::from_unit(); 1024],
         fun: name_to_fun.get(&Ident::new("main")).unwrap(),
         value_stack_base: 0,
         ip: 0,
         running: true,
     };
+
+    println!("--- RUNNING ---");
 
     while vm.running {
         vm.execute_next_instr();
@@ -113,17 +115,17 @@ fn main() {
 
 fn debug_int<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_int());
-    Value::unit()
+    Value::from_unit()
 }
 
 fn debug_float<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_float());
-    Value::unit()
+    Value::from_unit()
 }
 
 fn debug_bool<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_bool());
-    Value::unit()
+    Value::from_unit()
 }
 
 fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
@@ -131,5 +133,5 @@ fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
         println!("assertion failed!");
         exit(1);
     }
-    Value::unit()
+    Value::from_unit()
 }
