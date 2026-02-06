@@ -110,13 +110,13 @@ impl<'f> Lowerer<'f> {
 
             (CompOp::Less, NumericType::Int) => self.bytecode.instr().iblt(src1, src2, label),
             (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().ible(src1, src2, label),
-            (CompOp::Greater, NumericType::Int) => self.bytecode.instr().iblt(src2, src1, label),
-            (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().ible(src2, src1, label),
+            (CompOp::Greater, NumericType::Int) => self.bytecode.instr().ibgt(src1, src2, label),
+            (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().ibge(src1, src2, label),
 
             (CompOp::Less, NumericType::Float) => self.bytecode.instr().fblt(src1, src2, label),
             (CompOp::LessEqual, NumericType::Float) => self.bytecode.instr().fble(src1, src2, label),
-            (CompOp::Greater, NumericType::Float) => self.bytecode.instr().fblt(src2, src1, label),
-            (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fble(src2, src1, label),
+            (CompOp::Greater, NumericType::Float) => self.bytecode.instr().fbgt(src1, src2, label),
+            (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fbge(src1, src2, label),
         }
     }
     fn lower_expr_branch(&mut self, expr: &TypedExpr, label: Label) {
@@ -136,46 +136,38 @@ impl<'f> Lowerer<'f> {
     }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         match expr {
-            TypedExpr::Infix {
-                left,
-                right,
-                op: InfixOp::Arith(op),
-                ty,
-            } => {
+            TypedExpr::Infix { left, right, op, ty } => {
                 let src1 = self.lower_expr_val(left);
                 let src2 = self.lower_expr_val(right);
-                match (op, ty) {
-                    (ArithOp::Add, NumericType::Int) => self.bytecode.instr().iadd(dst, src1, src2),
-                    (ArithOp::Subtract, NumericType::Int) => self.bytecode.instr().isub(dst, src1, src2),
-                    (ArithOp::Multiply, NumericType::Int) => self.bytecode.instr().imul(dst, src1, src2),
-                    (ArithOp::Divide, NumericType::Int) => self.bytecode.instr().idiv(dst, src1, src2),
-                    (ArithOp::Modulus, NumericType::Int) => self.bytecode.instr().imod(dst, src1, src2),
+                match op {
+                    InfixOp::Arith(op) => match (op, ty) {
+                        (ArithOp::Add, NumericType::Int) => self.bytecode.instr().iadd(dst, src1, src2),
+                        (ArithOp::Subtract, NumericType::Int) => self.bytecode.instr().isub(dst, src1, src2),
+                        (ArithOp::Multiply, NumericType::Int) => self.bytecode.instr().imul(dst, src1, src2),
+                        (ArithOp::Divide, NumericType::Int) => self.bytecode.instr().idiv(dst, src1, src2),
+                        (ArithOp::Modulus, NumericType::Int) => self.bytecode.instr().imod(dst, src1, src2),
 
-                    (ArithOp::Add, NumericType::Float) => self.bytecode.instr().fadd(dst, src1, src2),
-                    (ArithOp::Subtract, NumericType::Float) => self.bytecode.instr().fsub(dst, src1, src2),
-                    (ArithOp::Multiply, NumericType::Float) => self.bytecode.instr().fmul(dst, src1, src2),
-                    (ArithOp::Divide, NumericType::Float) => self.bytecode.instr().fdiv(dst, src1, src2),
-                    (ArithOp::Modulus, NumericType::Float) => self.bytecode.instr().fmod(dst, src1, src2),
-                };
-            }
-            TypedExpr::Infix {
-                left,
-                right,
-                op: InfixOp::Comp(op),
-                ty,
-            } => {
-                let if_true = self.new_label();
-                let if_false = self.new_label();
+                        (ArithOp::Add, NumericType::Float) => self.bytecode.instr().fadd(dst, src1, src2),
+                        (ArithOp::Subtract, NumericType::Float) => self.bytecode.instr().fsub(dst, src1, src2),
+                        (ArithOp::Multiply, NumericType::Float) => self.bytecode.instr().fmul(dst, src1, src2),
+                        (ArithOp::Divide, NumericType::Float) => self.bytecode.instr().fdiv(dst, src1, src2),
+                        (ArithOp::Modulus, NumericType::Float) => self.bytecode.instr().fmod(dst, src1, src2),
+                    },
+                    InfixOp::Comp(op) => match (op, ty) {
+                        (CompOp::Equal, _) => self.bytecode.instr().seq(dst, src1, src2),
+                        (CompOp::NotEqual, _) => self.bytecode.instr().sne(dst, src1, src2),
 
-                let true_const = self.get_const(Value::from_bool(true));
-                let false_const = self.get_const(Value::from_bool(false));
+                        (CompOp::Less, NumericType::Int) => self.bytecode.instr().islt(dst, src1, src2),
+                        (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().isle(dst, src1, src2),
+                        (CompOp::Greater, NumericType::Int) => self.bytecode.instr().isgt(dst, src1, src2),
+                        (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().isge(dst, src1, src2),
 
-                self.lower_expr_comp_branch(left, right, *op, if_true, *ty);
-                self.bytecode.instr().mov(dst, Val::Cst(false_const));
-                self.bytecode.instr().jmp(if_false);
-                self.bytecode.label(if_true);
-                self.bytecode.instr().mov(dst, Val::Cst(true_const));
-                self.bytecode.label(if_false);
+                        (CompOp::Less, NumericType::Float) => self.bytecode.instr().fslt(dst, src1, src2),
+                        (CompOp::LessEqual, NumericType::Float) => self.bytecode.instr().fsle(dst, src1, src2),
+                        (CompOp::Greater, NumericType::Float) => self.bytecode.instr().fsgt(dst, src1, src2),
+                        (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fsge(dst, src1, src2),
+                    },
+                }
             }
             TypedExpr::Call { name, args } => {
                 let fun = self.fresh_const();

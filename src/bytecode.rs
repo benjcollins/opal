@@ -73,6 +73,39 @@ macro_rules! define_branch_instr {
     };
 }
 
+macro_rules! define_branch_instr_rev {
+    ($fn_name:ident, $op:ident) => {
+        pub fn $fn_name(mut self, src1: Val, src2: Val, label: L) {
+            self.bytecode_buffer.branches.push((self.bytecode_buffer.buffer.len(), label));
+            self.instr.set_op(Op::$op);
+            self.instr.set_src1(src2);
+            self.instr.set_src2(src1);
+        }
+    };
+}
+
+macro_rules! define_set_instr {
+    ($fn_name:ident, $op:ident) => {
+        pub fn $fn_name(mut self, dst: Reg, src1: Val, src2: Val) {
+            self.instr.set_op(Op::$op);
+            self.instr.set_dst(dst);
+            self.instr.set_src1(src1);
+            self.instr.set_src2(src2);
+        }
+    };
+}
+
+macro_rules! define_set_instr_rev {
+    ($fn_name:ident, $op:ident) => {
+        pub fn $fn_name(mut self, dst: Reg, src1: Val, src2: Val) {
+            self.instr.set_op(Op::$op);
+            self.instr.set_dst(dst);
+            self.instr.set_src1(src2);
+            self.instr.set_src2(src1);
+        }
+    };
+}
+
 impl<'b, L> InstrBuilder<'b, L> {
     pub fn jmp(mut self, label: L) {
         self.bytecode_buffer.jumps.push((self.bytecode_buffer.buffer.len(), label));
@@ -115,4 +148,19 @@ impl<'b, L> InstrBuilder<'b, L> {
     define_branch_instr!(ible, IBLE);
     define_branch_instr!(fblt, FBLT);
     define_branch_instr!(fble, FBLE);
+    define_branch_instr_rev!(ibgt, IBLT);
+    define_branch_instr_rev!(ibge, IBLE);
+    define_branch_instr_rev!(fbgt, FBLT);
+    define_branch_instr_rev!(fbge, FBLE);
+
+    define_set_instr!(seq, SEQ);
+    define_set_instr!(sne, SNE);
+    define_set_instr!(islt, ISLT);
+    define_set_instr!(isle, ISLE);
+    define_set_instr!(fslt, FSLT);
+    define_set_instr!(fsle, FSLE);
+    define_set_instr_rev!(isgt, ISLT);
+    define_set_instr_rev!(isge, ISLE);
+    define_set_instr_rev!(fsgt, FSLT);
+    define_set_instr_rev!(fsge, FSLE);
 }

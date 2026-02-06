@@ -26,6 +26,13 @@ pub enum Op {
     FBLT,
     FBLE,
 
+    SEQ,
+    SNE,
+    ISLT,
+    ISLE,
+    FSLT,
+    FSLE,
+
     JMP,
 
     CALL,
@@ -94,6 +101,9 @@ impl Instr {
     fn display_branch_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
     }
+    fn display_set_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +150,7 @@ impl fmt::Display for Instr {
             Op::MOV => write!(f, " {}, {}", self.dst(), self.src1()),
             Op::IADD | Op::ISUB | Op::IMUL | Op::IDIV | Op::IMOD | Op::FADD | Op::FSUB | Op::FMUL | Op::FDIV | Op::FMOD => self.display_arith_instr(f),
             Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => self.display_branch_instr(f),
+            Op::SEQ | Op::SNE | Op::ISLT | Op::ISLE | Op::FSLT | Op::FSLE => self.display_set_instr(f),
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),

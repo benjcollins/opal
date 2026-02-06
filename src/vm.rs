@@ -117,6 +117,13 @@ impl<'f> VM<'f> {
         }
     }
 
+    fn execute_set_instr(&mut self, instr: Instr, cmp: impl Fn(Value<'f>, Value<'f>) -> bool) {
+        let src1 = self.read_value(instr.src1());
+        let src2 = self.read_value(instr.src2());
+        self.write_reg(instr.dst(), Value::from_bool(cmp(src1, src2)));
+        self.ip += 1;
+    }
+
     pub fn execute_next_instr(&mut self) {
         let instr = self.fun.bytecode[self.ip];
 
@@ -147,6 +154,13 @@ impl<'f> VM<'f> {
             Op::IBLE => self.execute_branch_instr(instr, int_cmp(|a, b| a <= b)),
             Op::FBLT => self.execute_branch_instr(instr, float_cmp(|a, b| a < b)),
             Op::FBLE => self.execute_branch_instr(instr, float_cmp(|a, b| a <= b)),
+
+            Op::SEQ => self.execute_set_instr(instr, |a, b| a == b),
+            Op::SNE => self.execute_set_instr(instr, |a, b| a != b),
+            Op::ISLT => self.execute_set_instr(instr, int_cmp(|a, b| a < b)),
+            Op::ISLE => self.execute_set_instr(instr, int_cmp(|a, b| a <= b)),
+            Op::FSLT => self.execute_set_instr(instr, float_cmp(|a, b| a < b)),
+            Op::FSLE => self.execute_set_instr(instr, float_cmp(|a, b| a <= b)),
 
             Op::JMP => {
                 if instr.jump_offset().is_positive() {
