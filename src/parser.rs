@@ -167,7 +167,6 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
         Ok(Stmt::Return(expr))
     } else if let Some(ident) = parser.consume(token::Ident) {
         if parser.consume2(Symbol::Equal) {
-            parser.expect(Symbol::Equal)?;
             let var = VarUse(Ident::new(ident));
             let expr = parse_expr(parser, 0)?;
             parser.expect(Symbol::Semicolon)?;
@@ -180,6 +179,12 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
         }
     } else if parser.consume2(Keyword::If) {
         Ok(Stmt::If(parse_if(parser)?))
+    } else if parser.consume2(Keyword::While) {
+        parser.expect(Symbol::OpenParen)?;
+        let cond = parse_expr(parser, 0)?;
+        parser.expect(Symbol::CloseParen)?;
+        let block = parse_block(parser)?;
+        Ok(Stmt::While { cond, block })
     } else {
         Ok(Stmt::Expr(parse_expr(parser, 0)?))
     }

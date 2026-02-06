@@ -39,6 +39,7 @@ pub enum TypedStmt {
     Expr(TypedExpr),
     Return(TypedExpr),
     If(TypedIf),
+    While { cond: TypedExpr, block: TypedBlock },
 }
 
 #[derive(Debug, Clone)]

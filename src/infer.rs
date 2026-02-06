@@ -198,21 +198,28 @@ impl<'e> Inferer<'e> {
                 }
                 TypedStmt::Expr(expr)
             }
-            Stmt::Return(expr) => {
-                if let Some(expr) = expr {
-                    let (expr, ty) = self.infer_expr(expr)?;
-                    if ty != self.returns {
-                        return Err(());
-                    }
-                    TypedStmt::Return(expr)
-                } else {
-                    if Type::Unit != self.returns {
-                        return Err(());
-                    }
-                    TypedStmt::Return(TypedExpr::Lit(Lit::Unit))
+            Stmt::Return(Some(expr)) => {
+                let (expr, ty) = self.infer_expr(expr)?;
+                if ty != self.returns {
+                    return Err(());
                 }
+                TypedStmt::Return(expr)
+            }
+            Stmt::Return(None) => {
+                if Type::Unit != self.returns {
+                    return Err(());
+                }
+                TypedStmt::Return(TypedExpr::Lit(Lit::Unit))
             }
             Stmt::If(if_) => TypedStmt::If(self.infer_if(if_)?),
+            Stmt::While { cond, block } => {
+                let (cond, ty) = self.infer_expr(cond)?;
+                if ty != Type::Bool {
+                    return Err(())
+                }
+                let block = self.infer_block(block)?;
+                TypedStmt::While { cond, block }
+            }
         })
     }
 

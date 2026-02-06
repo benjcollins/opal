@@ -77,6 +77,10 @@ pub enum Stmt {
     Return(Option<Expr>),
     Expr(Expr),
     If(If),
+    While {
+        cond: Expr,
+        block: Block,
+    }
 }
 
 #[derive(Debug, Clone)]
