@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 elsa = "1.11.2"
 strum = { version = "0.27.2", features = ["derive"] }
+opal_proc = { path = "../opal_proc" }

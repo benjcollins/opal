@@ -25,8 +25,15 @@ mod token;
 mod typed_ast;
 mod vm;
 
+pub struct NativeFun<'f> {
+    name: &'static str,
+    params: &'static [Type],
+    returns: Type,
+    fun: fn(&[Value<'f>]) -> Value<'f>,
+}
+
 fn main() {
-    let source = fs::read_to_string("examples/example.op").unwrap();
+    let source = fs::read_to_string("../examples/example.op").unwrap();
     let mut parser = Parser::new(&source);
     let module = match parse_module(&mut parser) {
         Ok(module) => module,
@@ -95,7 +102,7 @@ fn main() {
 
     let mut vm = VM {
         call_stack: Vec::new(),
-        value_stack: vec![Value::from_unit(); 1024],
+        value_stack: vec![Value::from_unit(()); 1024],
         fun: name_to_fun.get(&Ident::new("main")).unwrap(),
         value_stack_base: 0,
         ip: 0,
@@ -113,19 +120,24 @@ fn main() {
     }
 }
 
+#[opal_proc::fun]
+fn print_int(a: i64) {
+    println!("{}", a);
+}
+
 fn debug_int<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_int());
-    Value::from_unit()
+    Value::from_unit(())
 }
 
 fn debug_float<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_float());
-    Value::from_unit()
+    Value::from_unit(())
 }
 
 fn debug_bool<'f>(args: &[Value<'f>]) -> Value<'f> {
     println!("{}", args[0].as_bool());
-    Value::from_unit()
+    Value::from_unit(())
 }
 
 fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
@@ -133,5 +145,5 @@ fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
         println!("assertion failed!");
         exit(1);
     }
-    Value::from_unit()
+    Value::from_unit(())
 }

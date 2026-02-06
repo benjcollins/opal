@@ -63,7 +63,7 @@ impl<'f> Lowerer<'f> {
     }
     fn fresh_const(&mut self) -> Cst {
         let cst = Cst(self.consts.len() as u8);
-        self.consts.push(Value::from_unit());
+        self.consts.push(Value::from_unit(()));
         cst
     }
     fn alloc_reg(&mut self) -> Reg {
@@ -89,7 +89,7 @@ impl<'f> Lowerer<'f> {
                     &Lit::Int(value) => self.get_const(Value::from_int(value)),
                     &Lit::Float(value) => self.get_const(Value::from_float(value)),
                     &Lit::Bool(value) => self.get_const(Value::from_bool(value)),
-                    &Lit::Unit => self.get_const(Value::from_unit()),
+                    &Lit::Unit => self.get_const(Value::from_unit(())),
                 };
                 Val::Cst(cst)
             }

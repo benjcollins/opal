@@ -24,7 +24,7 @@ pub struct VM<'f> {
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
 
 impl<'f> Value<'f> {
-    pub fn from_unit() -> Value<'f> {
+    pub fn from_unit(unit: ()) -> Value<'f> {
         Value(0, PhantomData)
     }
     pub fn from_int(value: i64) -> Value<'f> {
