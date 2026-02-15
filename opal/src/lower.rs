@@ -54,6 +54,19 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
     )
 }
 
+impl CompOp {
+    fn invert(&self) -> CompOp {
+        match self {
+            CompOp::Equal => CompOp::NotEqual,
+            CompOp::NotEqual => CompOp::Equal,
+            CompOp::Greater => CompOp::LessEqual,
+            CompOp::Less => CompOp::GreaterEqual,
+            CompOp::LessEqual => CompOp::Greater,
+            CompOp::GreaterEqual => CompOp::Less,
+        }
+    }
+}
+
 impl<'f> Lowerer<'f> {
     fn get_const(&mut self, value: Value<'f>) -> Cst {
         *self.consts_index.entry(value).or_insert_with(|| {
@@ -102,7 +115,14 @@ impl<'f> Lowerer<'f> {
             }
         }
     }
-    fn lower_expr_comp_branch(&mut self, left: &TypedExpr, right: &TypedExpr, op: CompOp, label: Label, ty: NumericType) {
+    fn lower_expr_comp_branch(
+        &mut self,
+        left: &TypedExpr,
+        right: &TypedExpr,
+        op: CompOp,
+        label: Label,
+        ty: NumericType,
+    ) {
         let src1 = self.lower_expr_val(left);
         let src2 = self.lower_expr_val(right);
         match (op, ty) {
@@ -120,14 +140,17 @@ impl<'f> Lowerer<'f> {
             (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fbge(src1, src2, label),
         }
     }
-    fn lower_expr_branch_if_true(&mut self, expr: &TypedExpr, label: Label) {
+    fn lower_expr_branch(&mut self, expr: &TypedExpr, label: Label, branch_if: bool) {
         match expr {
             TypedExpr::Infix {
                 left,
                 right,
                 op: InfixOp::Comp(op),
                 ty,
-            } => self.lower_expr_comp_branch(left, right, *op, label, *ty),
+            } => {
+                let op = if branch_if { *op } else { op.invert() };
+                self.lower_expr_comp_branch(left, right, op, label, *ty)
+            }
             _ => {
                 let val = self.lower_expr_val(expr);
                 let true_const = self.get_const(Value::from_bool(true));
@@ -219,13 +242,10 @@ impl<'f> Lowerer<'f> {
             TypedStmt::If(if_) => self.lower_if(if_),
             TypedStmt::While { cond, block } => {
                 let loop_start = self.new_label();
-                let block_start = self.new_label();
                 let loop_exit = self.new_label();
 
                 self.bytecode.label(loop_start);
-                self.lower_expr_branch_if_true(cond, block_start);
-                self.bytecode.instr().jmp(loop_exit);
-                self.bytecode.label(block_start);
+                self.lower_expr_branch(cond, loop_exit, false);
                 self.lower_block(block);
                 self.bytecode.instr().jmp(loop_start);
                 self.bytecode.label(loop_exit);
@@ -236,7 +256,7 @@ impl<'f> Lowerer<'f> {
         let if_true = self.new_label();
         let if_false = self.new_label();
 
-        self.lower_expr_branch_if_true(&if_.cond, if_true);
+        self.lower_expr_branch(&if_.cond, if_true, true);
         match &if_.else_ {
             TypedElse::If(if_) => self.lower_if(if_),
             TypedElse::Block(block) => self.lower_block(block),
