@@ -12,6 +12,7 @@
 - Integration testing with custom test harness and libtest_mimic. 5SP
 - Assignment operators such as +=, -=, ... 2SP
 - Ability to invert conditions for more efficent while loop bytecode. 3SP
+- Module scoping. 3SP
 
 # IN DEV
 

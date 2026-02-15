@@ -2,11 +2,11 @@ use std::{marker::PhantomData, mem::transmute, ops::Neg, ptr};
 
 use crate::{
     instr::{Instr, Op, Reg, Val},
-    lower::Fun,
+    lower::CompiledFun,
 };
 
 pub struct Call<'f> {
-    fun: &'f Fun<'f>,
+    fun: &'f CompiledFun<'f>,
     ip: usize,
 }
 
@@ -14,7 +14,7 @@ pub struct VM<'f> {
     pub call_stack: Vec<Call<'f>>,
     pub value_stack: Vec<Value<'f>>,
 
-    pub fun: &'f Fun<'f>,
+    pub fun: &'f CompiledFun<'f>,
     pub value_stack_base: usize,
     pub ip: usize,
     pub running: bool,
@@ -24,7 +24,7 @@ pub struct VM<'f> {
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
 
 impl<'f> Value<'f> {
-    pub fn from_unit(unit: ()) -> Value<'f> {
+    pub fn from_unit(_: ()) -> Value<'f> {
         Value(0, PhantomData)
     }
     pub fn from_int(value: i64) -> Value<'f> {
@@ -36,11 +36,11 @@ impl<'f> Value<'f> {
     pub fn from_bool(value: bool) -> Value<'f> {
         Value(value as u64, PhantomData)
     }
-    pub fn from_fun(value: &'f Fun) -> Value<'f> {
-        Value(ptr::from_ref(value) as u64, PhantomData)
-    }
-    pub fn from_native_fun(fun: fn(&[Value<'f>]) -> Value<'f>) -> Value<'f> {
-        Value(fun as u64 | 1 << 63, PhantomData)
+    pub fn from_fun(fun: Fun) -> Value<'f> {
+        match fun {
+            Fun::Native(fun) => Value(fun as u64 | 1 << 63, PhantomData),
+            Fun::Compiled(fun) => Value(ptr::from_ref(fun) as u64, PhantomData),
+        }
     }
     pub fn as_float(self) -> f64 {
         f64::from_bits(self.0)
@@ -51,21 +51,22 @@ impl<'f> Value<'f> {
     pub fn as_bool(self) -> bool {
         self.0 != 0
     }
-    pub unsafe fn as_fun(self) -> FunKind<'f> {
+    pub unsafe fn as_fun(self) -> Fun<'f> {
         unsafe {
             if self.0 >> 63 == 1 {
                 let ptr = self.0 & !(1 << 63);
-                FunKind::Native(transmute(ptr as *const ()))
+                Fun::Native(transmute(ptr as *const ()))
             } else {
-                FunKind::UserDefined((self.0 as *const Fun).as_ref().unwrap())
+                Fun::Compiled((self.0 as *const CompiledFun).as_ref().unwrap())
             }
         }
     }
 }
 
-pub enum FunKind<'f> {
+#[derive(Debug, Clone, Copy)]
+pub enum Fun<'f> {
     Native(fn(&[Value<'f>]) -> Value<'f>),
-    UserDefined(&'f Fun<'f>),
+    Compiled(&'f CompiledFun<'f>),
 }
 
 fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
@@ -172,13 +173,13 @@ impl<'f> VM<'f> {
             Op::CALL => {
                 let fun = unsafe { self.read_value(instr.src1()).as_fun() };
                 match fun {
-                    FunKind::Native(fun) => {
+                    Fun::Native(fun) => {
                         let args_start = instr.args_start() as usize;
                         let args = &self.value_stack[self.value_stack_base + args_start..];
                         self.write_reg(instr.dst(), fun(args));
                         self.ip += 1;
                     }
-                    FunKind::UserDefined(fun) => {
+                    Fun::Compiled(fun) => {
                         self.call_stack.push(Call { fun: self.fun, ip: self.ip });
                         self.value_stack_base += instr.args_start() as usize;
                         self.fun = fun;

@@ -23,12 +23,13 @@ pub struct Lowerer<'f> {
     pub fun_ptrs: Vec<(Ident, u8)>,
 }
 
-pub struct Fun<'f> {
+#[derive(Debug)]
+pub struct CompiledFun<'f> {
     pub consts: Vec<Cell<Value<'f>>>,
     pub bytecode: Vec<Instr>,
 }
 
-pub fn lower_fun<'f>(fun: &TypedFun) -> (Fun<'f>, Vec<(Ident, u8)>) {
+pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),
@@ -45,7 +46,7 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (Fun<'f>, Vec<(Ident, u8)>) {
     }
     lowerer.lower_block(&fun.block);
     (
-        Fun {
+        CompiledFun {
             consts: lowerer.consts.into_iter().map(Cell::new).collect(),
             bytecode: lowerer.bytecode.finish(),
         },

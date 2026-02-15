@@ -1,16 +1,6 @@
-use std::{collections::HashMap, fs, process::exit};
+use std::{fs, process::exit};
 
-use ast::{Ident, ModuleItem};
-use elsa::FrozenVec;
-use infer::infer_fun;
-use lower::lower_fun;
-use parser::parse_module;
-use vm::{VM, Value};
-
-use crate::{
-    infer::{FunSig, Type, resolve_type},
-    parser::Parser,
-};
+use runtime::{Heap, Runtime};
 
 mod ast;
 mod bytecode;
@@ -20,130 +10,46 @@ mod intern;
 mod lexer;
 mod lower;
 mod parser;
+mod runtime;
 mod scope;
 mod token;
 mod typed_ast;
 mod vm;
 
-pub struct NativeFun<'f> {
-    name: &'static str,
-    params: &'static [Type],
-    returns: Type,
-    fun: fn(&[Value<'f>]) -> Value<'f>,
-}
-
 fn main() {
+    let heap = Heap::new();
+    let mut runtime = Runtime::new(&heap);
+
+    runtime.register_native_fun(debug_int);
+    runtime.register_native_fun(debug_float);
+    runtime.register_native_fun(debug_bool);
+    runtime.register_native_fun(assert);
+
     let source = fs::read_to_string("../examples/example.op").unwrap();
-    let mut parser = Parser::new(&source);
-    let module = match parse_module(&mut parser) {
-        Ok(module) => module,
-        Err(_) => {
-            println!("parse error, token: {:?}, expected: {:?}", parser.token, parser.expected);
-            return;
-        }
-    };
+    runtime.compile_module(&source).unwrap();
 
-    let mut env = HashMap::new();
-
-    env.insert(Ident::new("debug_int"), FunSig::new(vec![Type::Int], Type::Unit));
-    env.insert(Ident::new("debug_float"), FunSig::new(vec![Type::Float], Type::Unit));
-    env.insert(Ident::new("debug_bool"), FunSig::new(vec![Type::Bool], Type::Unit));
-    env.insert(Ident::new("assert"), FunSig::new(vec![Type::Bool], Type::Unit));
-
-    for item in &module.items {
-        match item {
-            ModuleItem::Fun(fun) => {
-                let params = fun.params.iter().map(|(_, ty)| resolve_type(ty).unwrap()).collect::<Vec<_>>();
-                let returns = fun.returns.as_ref().map(|ty| resolve_type(&ty).unwrap()).unwrap_or(Type::Unit);
-                env.insert(fun.name.clone(), FunSig::new(params, returns));
-            }
-        }
-    }
-
-    let funs = FrozenVec::new();
-
-    let mut name_to_fun = HashMap::new();
-    let mut name_to_fun_value = HashMap::new();
-    let mut funs_to_patch = vec![];
-
-    name_to_fun_value.insert(Ident::new("debug_int"), Value::from_native_fun(debug_int));
-    name_to_fun_value.insert(Ident::new("debug_float"), Value::from_native_fun(debug_float));
-    name_to_fun_value.insert(Ident::new("debug_bool"), Value::from_native_fun(debug_bool));
-    name_to_fun_value.insert(Ident::new("assert"), Value::from_native_fun(assert));
-
-    for item in &module.items {
-        match item {
-            ModuleItem::Fun(fun) => {
-                let typed_fun = infer_fun(fun, &env).unwrap();
-                // println!("{:#?}", typed_fun);
-                let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
-                let fun_ref = funs.push_get(Box::new(compiled_fun));
-                funs_to_patch.push((fun_ref, fun_ptrs));
-                name_to_fun_value.insert(fun.name.clone(), Value::from_fun(fun_ref));
-                name_to_fun.insert(fun.name.clone(), fun_ref);
-            }
-        }
-    }
-
-    for (name, fun) in &name_to_fun {
-        println!("FUN {}:", name.0);
-        for instr in &fun.bytecode {
-            println!("  {}", instr);
-        }
-        println!();
-    }
-
-    for (fun_to_patch, fun_ptrs) in funs_to_patch {
-        for (target_fun_name, index) in fun_ptrs {
-            let fun_value = name_to_fun_value.get(&target_fun_name).unwrap();
-            fun_to_patch.consts[index as usize].set(*fun_value);
-        }
-    }
-
-    let mut vm = VM {
-        call_stack: Vec::new(),
-        value_stack: vec![Value::from_unit(()); 1024],
-        fun: name_to_fun.get(&Ident::new("main")).unwrap(),
-        value_stack_base: 0,
-        ip: 0,
-        running: true,
-    };
-
-    println!("--- RUNNING ---");
-
-    while vm.running {
-        vm.execute_next_instr();
-        // println!(
-        //     "{:?}",
-        //     Vec::from_iter(vm.value_stack[0..10].iter().copied().map(|value| value.as_int()))
-        // );
-    }
+    runtime.execute_fun("main");
 }
 
 #[opal_proc::fun]
-fn print_int(a: i64) {
+fn debug_int(a: i64) {
     println!("{}", a);
 }
 
-fn debug_int<'f>(args: &[Value<'f>]) -> Value<'f> {
-    println!("{}", args[0].as_int());
-    Value::from_unit(())
+#[opal_proc::fun]
+fn debug_float(value: f64) {
+    println!("{}", value)
 }
 
-fn debug_float<'f>(args: &[Value<'f>]) -> Value<'f> {
-    println!("{}", args[0].as_float());
-    Value::from_unit(())
+#[opal_proc::fun]
+fn debug_bool(value: bool) {
+    println!("{}", value)
 }
 
-fn debug_bool<'f>(args: &[Value<'f>]) -> Value<'f> {
-    println!("{}", args[0].as_bool());
-    Value::from_unit(())
-}
-
-fn assert<'f>(args: &[Value<'f>]) -> Value<'f> {
-    if !args[0].as_bool() {
+#[opal_proc::fun]
+fn assert(value: bool) {
+    if !value {
         println!("assertion failed!");
         exit(1);
     }
-    Value::from_unit(())
 }

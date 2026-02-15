@@ -51,10 +51,10 @@ pub fn fun(_: TokenStream, item: TokenStream) -> TokenStream {
 
     let output = quote! {
         #[allow(non_upper_case_globals)]
-        const #fn_name: crate::interpreter::NativeFun = {
+        const #fn_name: crate::runtime::NativeFun = {
             use crate::vm::Value;
             use crate::infer::Type;
-            use crate::interpreter::NativeFun;
+            use crate::runtime::NativeFun;
 
             fn inner<'f>(args: &[Value<'f>]) -> Value<'f> {
                 #(
