@@ -1,5 +1,5 @@
 [package]
-name = "compiler"
+name = "opal"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,3 +7,11 @@ edition = "2024"
 elsa = "1.11.2"
 strum = { version = "0.27.2", features = ["derive"] }
 opal_proc = { path = "../opal_proc" }
+
+[dev-dependencies]
+libtest-mimic = "0.8.1"
+opal_proc = { path = "../opal_proc" }
+
+[[test]]
+name = "integration"
+harness = false

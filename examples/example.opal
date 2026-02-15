@@ -18,8 +18,6 @@ fun main() {
         x = x + 1;
         debug_int(x);
     }
-
-    return;
 }
 
 fun gcd(a: Int, b: Int) -> Int {

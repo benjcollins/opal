@@ -1,6 +1,12 @@
-use std::{marker::PhantomData, mem::transmute, ops::Neg, ptr};
+use std::{
+    marker::PhantomData,
+    mem::transmute,
+    ops::{ControlFlow, Neg},
+    ptr,
+};
 
 use crate::{
+    infer::Type,
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
 };
@@ -17,11 +23,69 @@ pub struct VM<'f> {
     pub fun: &'f CompiledFun<'f>,
     pub value_stack_base: usize,
     pub ip: usize,
-    pub running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
+
+pub trait ValueConv {
+    const TYPE: Type;
+
+    fn into_value<'h>(self) -> Value<'h>;
+    fn from_value<'h>(value: Value<'h>) -> Self;
+}
+
+pub trait NativeFunResult {
+    type Output: ValueConv;
+    fn map<'h>(self) -> Result<Value<'h>, RuntimeError>;
+}
+
+impl<T: ValueConv> NativeFunResult for Result<T, RuntimeError> {
+    type Output = T;
+    fn map<'h>(self) -> Result<Value<'h>, RuntimeError> {
+        self.map(|t| t.into_value())
+    }
+}
+
+impl ValueConv for i64 {
+    const TYPE: Type = Type::Int;
+    fn into_value<'h>(self) -> Value<'h> {
+        Value::from_int(self)
+    }
+    fn from_value<'h>(value: Value<'h>) -> Self {
+        value.as_int()
+    }
+}
+
+impl ValueConv for bool {
+    const TYPE: Type = Type::Bool;
+    fn into_value<'h>(self) -> Value<'h> {
+        Value::from_bool(self)
+    }
+    fn from_value<'h>(value: Value<'h>) -> Self {
+        value.as_bool()
+    }
+}
+
+impl ValueConv for f64 {
+    const TYPE: Type = Type::Float;
+    fn into_value<'h>(self) -> Value<'h> {
+        Value::from_float(self)
+    }
+    fn from_value<'h>(value: Value<'h>) -> Self {
+        value.as_float()
+    }
+}
+
+impl ValueConv for () {
+    const TYPE: Type = Type::Unit;
+    fn into_value<'h>(self) -> Value<'h> {
+        Value::from_unit(())
+    }
+    fn from_value<'h>(_: Value<'h>) -> Self {
+        ()
+    }
+}
 
 impl<'f> Value<'f> {
     pub fn from_unit(_: ()) -> Value<'f> {
@@ -65,7 +129,7 @@ impl<'f> Value<'f> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Fun<'f> {
-    Native(fn(&[Value<'f>]) -> Value<'f>),
+    Native(fn(&[Value<'f>]) -> Result<Value<'f>, RuntimeError>),
     Compiled(&'f CompiledFun<'f>),
 }
 
@@ -85,6 +149,9 @@ fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'f>, Value<'f>
     move |a, b| cmp(a.as_float(), b.as_float())
 }
 
+#[derive(Debug)]
+pub struct RuntimeError;
+
 impl<'f> VM<'f> {
     fn read_value(&self, val: Val) -> Value<'f> {
         match val {
@@ -97,14 +164,23 @@ impl<'f> VM<'f> {
         self.value_stack[self.value_stack_base + reg.0 as usize] = val;
     }
 
-    fn execute_arith_instr(&mut self, instr: Instr, op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>) {
+    fn execute_arith_instr(
+        &mut self,
+        instr: Instr,
+        op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>,
+    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         self.write_reg(instr.dst(), op(src1, src2));
         self.ip += 1;
+        Ok(ControlFlow::Continue(()))
     }
 
-    fn execute_branch_instr(&mut self, instr: Instr, cmp: impl Fn(Value<'f>, Value<'f>) -> bool) {
+    fn execute_branch_instr(
+        &mut self,
+        instr: Instr,
+        cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
+    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         if cmp(src1, src2) {
@@ -116,25 +192,45 @@ impl<'f> VM<'f> {
         } else {
             self.ip += 1;
         }
+        Ok(ControlFlow::Continue(()))
     }
 
-    fn execute_set_instr(&mut self, instr: Instr, cmp: impl Fn(Value<'f>, Value<'f>) -> bool) {
+    fn execute_set_instr(
+        &mut self,
+        instr: Instr,
+        cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
+    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         self.write_reg(instr.dst(), Value::from_bool(cmp(src1, src2)));
         self.ip += 1;
+        Ok(ControlFlow::Continue(()))
     }
 
-    pub fn execute_next_instr(&mut self) {
-        let instr = self.fun.bytecode[self.ip];
+    fn ret(&mut self, value: Value<'f>) -> Result<ControlFlow<(), ()>, RuntimeError> {
+        let Some(prev_call) = self.call_stack.pop() else {
+            return Ok(ControlFlow::Break(()));
+        };
+        self.fun = prev_call.fun;
+        self.ip = prev_call.ip + 1;
+        let call_instr = self.fun.bytecode[prev_call.ip];
+        self.value_stack_base -= call_instr.args_start() as usize;
+        self.write_reg(call_instr.dst(), value);
+        Ok(ControlFlow::Continue(()))
+    }
 
-        // println!("{}", instr);
+    pub fn execute_next_instr(&mut self) -> Result<ControlFlow<(), ()>, RuntimeError> {
+        if self.ip >= self.fun.bytecode.len() {
+            return self.ret(Value::from_unit(()));
+        }
+        let instr = self.fun.bytecode[self.ip];
 
         match instr.op() {
             Op::MOV => {
                 let src1 = self.read_value(instr.src1());
                 self.write_reg(instr.dst(), src1);
                 self.ip += 1;
+                Ok(ControlFlow::Continue(()))
             }
 
             Op::IADD => self.execute_arith_instr(instr, int_op(|a, b| a + b)),
@@ -169,6 +265,7 @@ impl<'f> VM<'f> {
                 } else {
                     self.ip -= instr.jump_offset().neg() as usize;
                 }
+                Ok(ControlFlow::Continue(()))
             }
             Op::CALL => {
                 let fun = unsafe { self.read_value(instr.src1()).as_fun() };
@@ -176,28 +273,24 @@ impl<'f> VM<'f> {
                     Fun::Native(fun) => {
                         let args_start = instr.args_start() as usize;
                         let args = &self.value_stack[self.value_stack_base + args_start..];
-                        self.write_reg(instr.dst(), fun(args));
+                        self.write_reg(instr.dst(), fun(args)?);
                         self.ip += 1;
                     }
                     Fun::Compiled(fun) => {
-                        self.call_stack.push(Call { fun: self.fun, ip: self.ip });
+                        self.call_stack.push(Call {
+                            fun: self.fun,
+                            ip: self.ip,
+                        });
                         self.value_stack_base += instr.args_start() as usize;
                         self.fun = fun;
                         self.ip = 0;
                     }
                 }
+                Ok(ControlFlow::Continue(()))
             }
             Op::RET => {
-                let Some(prev_call) = self.call_stack.pop() else {
-                    self.running = false;
-                    return;
-                };
                 let src = self.read_value(instr.src1());
-                self.fun = prev_call.fun;
-                self.ip = prev_call.ip + 1;
-                let call_instr = self.fun.bytecode[prev_call.ip];
-                self.value_stack_base -= call_instr.args_start() as usize;
-                self.write_reg(call_instr.dst(), src);
+                self.ret(src)
             }
         }
     }

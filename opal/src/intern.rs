@@ -52,7 +52,7 @@ impl InternedStr {
             _marker: PhantomData,
         }
     }
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         INTERNER.with_borrow(|interner| interner.vec[self.index as usize].str)
     }
 }

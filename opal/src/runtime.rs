@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::ControlFlow};
 
 use elsa::FrozenVec;
 
@@ -7,7 +7,7 @@ use crate::{
     infer::{FunSig, Type, infer_fun, resolve_type},
     lower::{CompiledFun, lower_fun},
     parser::{Parser, parse_module},
-    vm::{Fun, VM, Value},
+    vm::{Fun, RuntimeError, VM, Value},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -15,7 +15,7 @@ pub struct NativeFun {
     pub name: &'static str,
     pub params: &'static [Type],
     pub returns: Type,
-    pub fun: for<'h> fn(&[Value<'h>]) -> Value<'h>,
+    pub fun: for<'h> fn(&[Value<'h>]) -> Result<Value<'h>, RuntimeError>,
 }
 
 impl NativeFun {
@@ -62,8 +62,16 @@ impl<'h> Runtime<'h> {
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
-                    let params = fun.params.iter().map(|(_, ty)| resolve_type(ty).unwrap()).collect::<Vec<_>>();
-                    let returns = fun.returns.as_ref().map(|ty| resolve_type(ty).unwrap()).unwrap_or(Type::Unit);
+                    let params = fun
+                        .params
+                        .iter()
+                        .map(|(_, ty)| resolve_type(ty).unwrap())
+                        .collect::<Vec<_>>();
+                    let returns = fun
+                        .returns
+                        .as_ref()
+                        .map(|ty| resolve_type(ty).unwrap())
+                        .unwrap_or(Type::Unit);
                     self.env.insert(fun.name.clone(), FunSig::new(params, returns));
                 }
             }
@@ -92,7 +100,7 @@ impl<'h> Runtime<'h> {
 
         Ok(())
     }
-    pub fn execute_fun(&mut self, name: &str) {
+    pub fn execute_fun(&mut self, name: &str) -> Result<(), RuntimeError> {
         let Fun::Compiled(fun) = self.env2.get(&Ident::new(name)).unwrap() else {
             panic!()
         };
@@ -103,13 +111,13 @@ impl<'h> Runtime<'h> {
             fun,
             value_stack_base: 0,
             ip: 0,
-            running: true,
         };
 
-        println!("--- RUNNING ---");
-
-        while vm.running {
-            vm.execute_next_instr();
+        let mut cf = ControlFlow::Continue(());
+        while cf.is_continue() {
+            cf = vm.execute_next_instr()?;
         }
+
+        Ok(())
     }
 }

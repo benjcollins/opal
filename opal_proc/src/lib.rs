@@ -1,71 +1,52 @@
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::{FnArg, ItemFn};
+use proc_macro2::TokenStream as TokenStream2;
+use quote::quote;
+use syn::{FnArg, ItemFn, ReturnType};
 
 #[proc_macro_attribute]
 pub fn fun(_: TokenStream, item: TokenStream) -> TokenStream {
+    inner(item.into()).into()
+}
+
+fn inner(item: TokenStream2) -> TokenStream2 {
     let item_fn = syn::parse2::<ItemFn>(item.into()).expect("expected a function");
 
     let fn_name = item_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
 
-    let mut pats = vec![];
-    let mut convs = vec![];
-    let mut param_types = vec![];
+    let mut pat = vec![];
+    let mut ty = vec![];
 
     for fn_arg in &item_fn.sig.inputs {
         let FnArg::Typed(pat_type) = fn_arg else { panic!() };
-        let syn::Type::Path(path) = pat_type.ty.as_ref() else {
-            panic!();
-        };
-        let (conv, param_type) = match path.path.get_ident().expect("expected an identifier").to_string().as_str() {
-            "i64" => (format_ident!("as_int"), format_ident!("Int")),
-            "f64" => (format_ident!("as_float"), format_ident!("Float")),
-            "bool" => (format_ident!("as_bool"), format_ident!("Bool")),
-            "unit" => (format_ident!("as_unit"), format_ident!("Unit")),
-            _ => panic!(),
-        };
-        convs.push(conv);
-        pats.push(pat_type.pat.clone());
-        param_types.push(param_type);
+        pat.push(pat_type.pat.clone());
+        ty.push(pat_type.ty.clone());
     }
 
-    let (conv, return_type) = match item_fn.sig.output {
-        syn::ReturnType::Default => (format_ident!("from_unit"), format_ident!("Unit")),
-        syn::ReturnType::Type(_, ty) => {
-            let syn::Type::Path(path) = ty.as_ref() else {
-                panic!();
-            };
-            match path.path.get_ident().expect("expected an identifier").to_string().as_str() {
-                "i64" => (format_ident!("from_int"), format_ident!("Int")),
-                "f64" => (format_ident!("from_float"), format_ident!("Float")),
-                "bool" => (format_ident!("from_bool"), format_ident!("Bool")),
-                "unit" => (format_ident!("from_unit"), format_ident!("Unit")),
-                _ => panic!(),
-            }
-        }
+    let ReturnType::Type(_, ret_ty) = item_fn.sig.output.clone() else {
+        panic!()
     };
 
-    let index = 0..pats.len();
+    let index = 0..pat.len();
     let block = item_fn.block;
 
     let output = quote! {
         #[allow(non_upper_case_globals)]
-        const #fn_name: crate::runtime::NativeFun = {
-            use crate::vm::Value;
-            use crate::infer::Type;
-            use crate::runtime::NativeFun;
+        const #fn_name: opal::runtime::NativeFun = {
+            use opal::vm::{Value, ValueConv, NativeFunResult};
+            use opal::infer::Type;
+            use opal::runtime::NativeFun;
 
-            fn inner<'f>(args: &[Value<'f>]) -> Value<'f> {
+            fn inner<'f>(args: &[Value<'f>]) -> Result<Value<'f>, RuntimeError> {
                 #(
-                    let #pats = args[#index].#convs();
+                    let #pat = <#ty as ValueConv>::from_value(args[#index]);
                 )*
-                Value::#conv(#block)
+                <#ret_ty as NativeFunResult>::map(#block)
             }
             NativeFun {
                 name: #fn_name_str,
-                params: &[#(Type::#param_types),*],
-                returns: Type::#return_type,
+                params: &[#(<#ty as ValueConv>::TYPE),*],
+                returns: <<#ret_ty as NativeFunResult>::Output as ValueConv>::TYPE,
                 fun: inner,
             }
         };
