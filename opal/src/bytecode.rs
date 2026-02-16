@@ -65,7 +65,9 @@ macro_rules! define_arith_instr {
 macro_rules! define_branch_instr {
     ($fn_name:ident, $op:ident) => {
         pub fn $fn_name(mut self, src1: Val, src2: Val, label: L) {
-            self.bytecode_buffer.branches.push((self.bytecode_buffer.buffer.len(), label));
+            self.bytecode_buffer
+                .branches
+                .push((self.bytecode_buffer.buffer.len(), label));
             self.instr.set_op(Op::$op);
             self.instr.set_src1(src1);
             self.instr.set_src2(src2);
@@ -76,7 +78,9 @@ macro_rules! define_branch_instr {
 macro_rules! define_branch_instr_rev {
     ($fn_name:ident, $op:ident) => {
         pub fn $fn_name(mut self, src1: Val, src2: Val, label: L) {
-            self.bytecode_buffer.branches.push((self.bytecode_buffer.buffer.len(), label));
+            self.bytecode_buffer
+                .branches
+                .push((self.bytecode_buffer.buffer.len(), label));
             self.instr.set_op(Op::$op);
             self.instr.set_src1(src2);
             self.instr.set_src2(src1);
@@ -108,7 +112,9 @@ macro_rules! define_set_instr_rev {
 
 impl<'b, L> InstrBuilder<'b, L> {
     pub fn jmp(mut self, label: L) {
-        self.bytecode_buffer.jumps.push((self.bytecode_buffer.buffer.len(), label));
+        self.bytecode_buffer
+            .jumps
+            .push((self.bytecode_buffer.buffer.len(), label));
         self.instr.set_op(Op::JMP);
     }
 

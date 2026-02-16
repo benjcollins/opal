@@ -12,10 +12,30 @@ fn assert(value: bool) -> Result<(), RuntimeError> {
     if value { Ok(()) } else { Err(RuntimeError) }
 }
 
+#[opal_proc::fun]
+fn print_int(value: i64) -> Result<(), RuntimeError> {
+    println!("{}", value);
+    Ok(())
+}
+
+#[opal_proc::fun]
+fn print_float(value: f64) -> Result<(), RuntimeError> {
+    println!("{}", value);
+    Ok(())
+}
+
+#[opal_proc::fun]
+fn fail() -> Result<(), RuntimeError> {
+    Err(RuntimeError)
+}
+
 fn run_test(name: &str, source: &str) -> Result<(), Failed> {
     let heap = Heap::new();
     let mut runtime = Runtime::new(&heap);
     runtime.register_native_fun(assert);
+    runtime.register_native_fun(print_float);
+    runtime.register_native_fun(print_int);
+    runtime.register_native_fun(fail);
     runtime.compile_module(source).map_err(|_| "could not compile module")?;
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())

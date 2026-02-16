@@ -153,8 +153,8 @@ impl<'f> Lowerer<'f> {
             }
             _ => {
                 let val = self.lower_expr_val(expr);
-                let true_const = self.get_const(Value::from_bool(true));
-                self.bytecode.instr().beq(val, Val::Cst(true_const), label);
+                let cst = self.get_const(Value::from_bool(branch_if));
+                self.bytecode.instr().beq(val, Val::Cst(cst), label);
             }
         }
     }

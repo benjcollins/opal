@@ -59,6 +59,9 @@ pub fn parse_value(parser: &mut Parser) -> Result<Expr, ()> {
         return Ok(Expr::Lit(Lit::Float(value)));
     }
     if parser.consume2(Symbol::OpenParen) {
+        if parser.consume2(Symbol::CloseParen) {
+            return Ok(Expr::Lit(Lit::Unit));
+        }
         let expr = parse_expr(parser, 0)?;
         parser.expect(Symbol::CloseParen)?;
         return Ok(Expr::Paren(Box::new(expr)));
@@ -207,7 +210,9 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
         let block = parse_block(parser)?;
         return Ok(Stmt::While { cond, block });
     }
-    return Ok(Stmt::Expr(parse_expr(parser, 0)?));
+    let expr = parse_expr(parser, 0)?;
+    parser.expect(Symbol::Semicolon)?;
+    return Ok(Stmt::Expr(expr));
 }
 
 pub fn parse_block(parser: &mut Parser) -> Result<Block, ()> {
