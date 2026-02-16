@@ -22,10 +22,34 @@ impl<'src> Lexer<'src> {
     fn peek(&self) -> Option<char> {
         self.source[self.offset..].chars().next()
     }
-    fn next(&mut self) -> Option<char> {
+    fn advance(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.offset += ch.len_utf8();
         Some(ch)
+    }
+    fn consume(&mut self, s: &str) -> bool {
+        if self.source[self.offset..].starts_with(s) {
+            self.offset += s.len();
+            true
+        } else {
+            false
+        }
+    }
+    fn skip_line_comment(&mut self) {
+        while !self.consume("\n") {
+            if self.consume("/*") {
+                self.skip_block_comment();
+            }
+            self.advance();
+        }
+    }
+    fn skip_block_comment(&mut self) {
+        while !self.consume("*/") {
+            if self.consume("//") {
+                self.skip_line_comment();
+            }
+            self.advance();
+        }
     }
     pub fn next_token(&mut self) -> Option<(Token<'src>, Span)> {
         let mut start;
@@ -35,16 +59,13 @@ impl<'src> Lexer<'src> {
             start = self.offset;
 
             if ch.is_whitespace() {
-                self.next();
+                self.advance();
                 continue;
             }
 
             if ch.is_alphabetic() || ch == '_' {
-                while self
-                    .peek()
-                    .map_or(false, |ch| ch.is_alphanumeric() || ch == '_')
-                {
-                    self.next();
+                while self.peek().map_or(false, |ch| ch.is_alphanumeric() || ch == '_') {
+                    self.advance();
                 }
                 let ident = &self.source[start..self.offset];
                 break Keyword::from_str(ident)
@@ -56,16 +77,16 @@ impl<'src> Lexer<'src> {
                 let mut value = 0;
                 while let Some(digit) = self.peek().and_then(|ch| ch.to_digit(10)) {
                     value = (value * 10) + digit as i64;
-                    self.next();
+                    self.advance();
                 }
                 if self.peek().map_or(false, |ch| ch == '.') {
-                    self.next();
+                    self.advance();
                     let mut value = value as f64;
                     let mut div = 1.0;
                     while let Some(digit) = self.peek().and_then(|ch| ch.to_digit(10)) {
                         div *= 0.1;
                         value += digit as f64 * div;
-                        self.next();
+                        self.advance();
                     }
                     break Token::Float(value);
                 } else {
@@ -73,9 +94,18 @@ impl<'src> Lexer<'src> {
                 }
             }
 
+            if self.consume("//") {
+                self.skip_line_comment();
+                continue;
+            }
+
+            if self.consume("/*") {
+                self.skip_block_comment();
+                continue;
+            }
+
             for symbol in Symbol::iter() {
-                if self.source[self.offset..].starts_with(symbol.as_str()) {
-                    self.offset += symbol.as_str().len();
+                if self.consume(symbol.as_str()) {
                     break 'outer Token::Symbol(symbol);
                 }
             }

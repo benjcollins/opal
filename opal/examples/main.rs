@@ -10,7 +10,6 @@ fn main() {
     runtime.register_native_fun(debug_int);
     runtime.register_native_fun(debug_float);
     runtime.register_native_fun(debug_bool);
-    runtime.register_native_fun(assert);
 
     let source = fs::read_to_string("../examples/example.opal").unwrap();
     runtime.compile_module(&source).unwrap();
@@ -34,9 +33,4 @@ fn debug_float(value: f64) -> Result<(), RuntimeError> {
 fn debug_bool(value: bool) -> Result<(), RuntimeError> {
     println!("{}", value);
     Ok(())
-}
-
-#[opal_proc::fun]
-fn assert(value: bool) -> Result<(), RuntimeError> {
-    if value { Ok(()) } else { Err(RuntimeError) }
 }

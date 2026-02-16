@@ -8,7 +8,6 @@
 
 # READY FOR DEV
 
-- Comments. 1SP
 - Logical operators. 2SP
 - Flat memory structure for functions. 3SP
 - Assignment operators such as +=, -=, ... 2SP
@@ -20,6 +19,7 @@
 
 # DONE
 
+- Comments. 1SP
 - Ability to invert conditions for more efficent while loop bytecode. 3SP
 - Integration testing with custom test harness and libtest_mimic. 5SP
 - Using Rust proc macros to annotate rust functions to be native. 5SP

@@ -1,45 +1,13 @@
 module main;
 
+// this is a comment
+
+/* this is also a comment */
+
 fun main() {
-    let s = sum(10);
-    debug_int(s);
-    assert(s == 55);
-
-    let f = fib(5);
-    debug_int(f);
-    assert(f == 8);
-
-    let g = gcd(10, 15);
-    debug_int(g);
-    assert(g == 5);
-
     let x = 0;
     while (x < 10) {
         x = x + 1;
         debug_int(x);
-    }
-}
-
-fun gcd(a: Int, b: Int) -> Int {
-    if (b == 0) {
-        return a;
-    } else {
-        return gcd(b, a % b);
-    }
-}
-
-fun sum(n: Int) -> Int {
-    if (n == 0) {
-        return 0;
-    } else {
-        return n + sum(n - 1);
-    }
-}
-
-fun fib(n: Int) -> Int {
-    if (n <= 1) {
-        return 1;
-    } else {
-        return fib(n - 1) + fib(n - 2);
     }
 }
