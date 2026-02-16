@@ -11,8 +11,8 @@ pub struct Lexer<'src> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
-    pub start: u32,
-    pub end: u32,
+    pub start: usize,
+    pub end: usize,
 }
 
 thread_local! {
@@ -125,11 +125,8 @@ impl<'src> Lexer<'src> {
 
             panic!("unexpected character '{}'", ch);
         };
-        let end = self.offset as u32;
-        let span = Span {
-            start: start as u32,
-            end,
-        };
+        let end = self.offset;
+        let span = Span { start, end };
         Some((token, span))
     }
 }

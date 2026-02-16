@@ -6,7 +6,7 @@ use crate::{
     ast::{Ident, ModuleItem},
     infer::{FunSig, Type, infer_fun, resolve_type},
     lower::{CompiledFun, lower_fun},
-    parser::{Parser, parse_module},
+    parser::parse_module,
     vm::{Fun, RuntimeError, VM, Value},
 };
 
@@ -56,8 +56,7 @@ impl<'h> Runtime<'h> {
         self.env2.insert(Ident::new(fun.name), Fun::Native(fun.fun));
     }
     pub fn compile_module(&mut self, source: &str) -> Result<(), ()> {
-        let mut parser = Parser::new(&source);
-        let module = parse_module(&mut parser)?;
+        let module = parse_module(source).map_err(|_| ())?;
 
         for item in &module.items {
             match item {

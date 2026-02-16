@@ -1,4 +1,4 @@
-module math;
+module basic;
 
 fun test_int_arith() {
     assert(5 + 2 == 7);

@@ -82,9 +82,7 @@ impl ValueConv for () {
     fn into_value<'h>(self) -> Value<'h> {
         Value::from_unit(())
     }
-    fn from_value<'h>(_: Value<'h>) -> Self {
-        ()
-    }
+    fn from_value<'h>(_: Value<'h>) -> Self {}
 }
 
 impl<'f> Value<'f> {
@@ -102,7 +100,7 @@ impl<'f> Value<'f> {
     }
     pub fn from_fun(fun: Fun) -> Value<'f> {
         match fun {
-            Fun::Native(fun) => Value(fun as u64 | 1 << 63, PhantomData),
+            Fun::Native(fun) => Value(fun as usize as u64 | 1 << 63, PhantomData),
             Fun::Compiled(fun) => Value(ptr::from_ref(fun) as u64, PhantomData),
         }
     }

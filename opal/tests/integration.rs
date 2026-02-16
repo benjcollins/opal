@@ -1,7 +1,7 @@
 use libtest_mimic::{Arguments, Failed, Trial};
 use opal::{
     ast::ModuleItem,
-    parser::{Parser, parse_module},
+    parser::parse_module,
     runtime::{Heap, Runtime},
     vm::RuntimeError,
 };
@@ -52,8 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if item.file_type()?.is_file() && path.extension().unwrap().to_str().unwrap() == "opal" {
             let source: Arc<str> = fs::read_to_string(path)?.into();
-            let mut parser = Parser::new(&source);
-            let module = parse_module(&mut parser).unwrap();
+            let module = parse_module(&source).unwrap();
 
             for item in module.items {
                 let ModuleItem::Fun(fun) = item;

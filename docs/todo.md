@@ -1,10 +1,8 @@
 # BACKLOG
 
-- Error reporting.
 - Debugger.
 - CLI.
 - Escape analysis for functions
-- Arrays
 
 # READY FOR DEV
 
@@ -12,9 +10,11 @@
 - Flat memory structure for functions. 3SP
 - Module scoping. 3SP
 - Snapshot testing. 2SP
+- Arrays. 8SP
 
 # IN DEV
 
+- Error reporting.
 
 # DONE
 
