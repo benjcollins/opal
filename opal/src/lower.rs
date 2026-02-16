@@ -230,6 +230,11 @@ impl<'f> Lowerer<'f> {
                 let var_reg = self.vars.get(&var.id).unwrap();
                 self.lower_expr_dst(expr, *var_reg);
             }
+            TypedStmt::AssignArith { var, ty, op, expr } => {
+                let var_reg = *self.vars.get(&var.id).unwrap();
+                let expr_val = self.lower_expr_val(expr);
+                self.lower_infix_arith(*op, *ty, var_reg, Val::Reg(var_reg), expr_val);
+            }
             TypedStmt::Expr(expr) => {
                 self.enter_stack_frame();
                 self.lower_expr_val(expr);

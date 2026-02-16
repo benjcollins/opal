@@ -16,9 +16,9 @@ fun fib_loop(n: Int) -> Int {
     let b = 0;
     while (i < n) {
         let t = a;
-        a = a + b;
+        a += b;
         b = t;
-        i = i + 1;
+        i += 1;
     }
     return b;
 }

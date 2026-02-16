@@ -102,12 +102,12 @@ pub fn parse_infix(parser: &mut Parser, mut left: Expr, prec: Prec) -> Result<Ex
         (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 2),
         (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 2),
         //
-        (Symbol::DoubleEqual, InfixOp::Comp(CompOp::Equal), 1),
-        (Symbol::NotEqual, InfixOp::Comp(CompOp::NotEqual), 1),
+        (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 1),
+        (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 1),
         (Symbol::Less, InfixOp::Comp(CompOp::Less), 1),
         (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 1),
-        (Symbol::LessEqual, InfixOp::Comp(CompOp::LessEqual), 1),
-        (Symbol::GreaterEqual, InfixOp::Comp(CompOp::GreaterEqual), 1),
+        (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 1),
+        (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 1),
     ];
     'outer: loop {
         for (symbol, infix_op, op_prec) in INFIX_OPS {
@@ -152,11 +152,12 @@ pub fn parse_if(parser: &mut Parser) -> Result<If, ()> {
 pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
     if parser.consume2(Keyword::Let) {
         let var = parse_var_def(parser)?;
-        parser.expect(Symbol::Equal)?;
+        parser.expect(Symbol::Equals)?;
         let expr = parse_expr(parser, 0)?;
         parser.expect(Symbol::Semicolon)?;
-        Ok(Stmt::Let { var, expr })
-    } else if parser.consume2(Keyword::Return) {
+        return Ok(Stmt::Let { var, expr });
+    }
+    if parser.consume2(Keyword::Return) {
         let expr = (!parser.consume2(Symbol::Semicolon))
             .then(|| {
                 let expr = parse_expr(parser, 0)?;
@@ -164,30 +165,49 @@ pub fn parse_stmt(parser: &mut Parser) -> Result<Stmt, ()> {
                 Ok(expr)
             })
             .transpose()?;
-        Ok(Stmt::Return(expr))
-    } else if let Some(ident) = parser.consume(token::Ident) {
-        if parser.consume2(Symbol::Equal) {
+        return Ok(Stmt::Return(expr));
+    }
+    if let Some(ident) = parser.consume(token::Ident) {
+        if parser.consume2(Symbol::Equals) {
             let var = VarUse(Ident::new(ident));
             let expr = parse_expr(parser, 0)?;
             parser.expect(Symbol::Semicolon)?;
-            Ok(Stmt::Assign { var, expr })
-        } else {
-            let left = parse_value_ident(parser, Ident::new(ident))?;
-            let expr = parse_infix(parser, left, 0)?;
-            parser.expect(Symbol::Semicolon)?;
-            Ok(Stmt::Expr(expr))
+            return Ok(Stmt::Assign { var, expr });
+        };
+
+        const ARITH_ASSIGN_OPS: &[(ArithOp, Symbol)] = &[
+            (ArithOp::Add, Symbol::PlusEquals),
+            (ArithOp::Subtract, Symbol::MinusEquals),
+            (ArithOp::Multiply, Symbol::StarEquals),
+            (ArithOp::Divide, Symbol::SlashEquals),
+            (ArithOp::Modulus, Symbol::PercentEquals),
+        ];
+
+        for &(op, symbol) in ARITH_ASSIGN_OPS {
+            if parser.consume2(symbol) {
+                let var = VarUse(Ident::new(ident));
+                let expr = parse_expr(parser, 0)?;
+                parser.expect(Symbol::Semicolon)?;
+                return Ok(Stmt::AssignArith { var, op, expr });
+            }
         }
-    } else if parser.consume2(Keyword::If) {
-        Ok(Stmt::If(parse_if(parser)?))
-    } else if parser.consume2(Keyword::While) {
+
+        let left = parse_value_ident(parser, Ident::new(ident))?;
+        let expr = parse_infix(parser, left, 0)?;
+        parser.expect(Symbol::Semicolon)?;
+        return Ok(Stmt::Expr(expr));
+    }
+    if parser.consume2(Keyword::If) {
+        return Ok(Stmt::If(parse_if(parser)?));
+    }
+    if parser.consume2(Keyword::While) {
         parser.expect(Symbol::OpenParen)?;
         let cond = parse_expr(parser, 0)?;
         parser.expect(Symbol::CloseParen)?;
         let block = parse_block(parser)?;
-        Ok(Stmt::While { cond, block })
-    } else {
-        Ok(Stmt::Expr(parse_expr(parser, 0)?))
+        return Ok(Stmt::While { cond, block });
     }
+    return Ok(Stmt::Expr(parse_expr(parser, 0)?));
 }
 
 pub fn parse_block(parser: &mut Parser) -> Result<Block, ()> {

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{Ident, InfixOp, Lit},
+    ast::{ArithOp, Ident, InfixOp, Lit},
     infer::{NumericType, Type},
 };
 
@@ -34,12 +34,27 @@ pub enum TypedExpr {
 
 #[derive(Debug, Clone)]
 pub enum TypedStmt {
-    Let { var: Rc<TypedVar>, expr: TypedExpr },
-    Assign { var: Rc<TypedVar>, expr: TypedExpr },
+    Let {
+        var: Rc<TypedVar>,
+        expr: TypedExpr,
+    },
+    Assign {
+        var: Rc<TypedVar>,
+        expr: TypedExpr,
+    },
+    AssignArith {
+        var: Rc<TypedVar>,
+        ty: NumericType,
+        op: ArithOp,
+        expr: TypedExpr,
+    },
     Expr(TypedExpr),
     Return(TypedExpr),
     If(TypedIf),
-    While { cond: TypedExpr, block: TypedBlock },
+    While {
+        cond: TypedExpr,
+        block: TypedBlock,
+    },
 }
 
 #[derive(Debug, Clone)]

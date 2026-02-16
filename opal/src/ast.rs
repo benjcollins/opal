@@ -38,7 +38,11 @@ pub enum Expr {
     Call(Ident, Vec<Expr>),
     Paren(Box<Expr>),
     Var(VarUse),
-    Infix { left: Box<Expr>, op: InfixOp, right: Box<Expr> },
+    Infix {
+        left: Box<Expr>,
+        op: InfixOp,
+        right: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +74,7 @@ pub enum CompOp {
 pub enum Stmt {
     Let { var: VarDef, expr: Expr },
     Assign { var: VarUse, expr: Expr },
+    AssignArith { var: VarUse, op: ArithOp, expr: Expr },
     Return(Option<Expr>),
     Expr(Expr),
     If(If),

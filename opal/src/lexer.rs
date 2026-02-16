@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{cell::LazyCell, str::FromStr};
 
 use strum::IntoEnumIterator;
 
@@ -13,6 +13,14 @@ pub struct Lexer<'src> {
 pub struct Span {
     pub start: u32,
     pub end: u32,
+}
+
+thread_local! {
+    static SYMBOLS: LazyCell<&'static [Symbol]> = LazyCell::new(|| {
+        let mut symbols = Vec::from_iter(Symbol::iter());
+        symbols.sort_by(|a, b| b.as_str().len().cmp(&a.as_str().len()));
+        symbols.leak()
+    });
 }
 
 impl<'src> Lexer<'src> {
@@ -104,10 +112,15 @@ impl<'src> Lexer<'src> {
                 continue;
             }
 
-            for symbol in Symbol::iter() {
-                if self.consume(symbol.as_str()) {
-                    break 'outer Token::Symbol(symbol);
+            if let Some(symbol) = SYMBOLS.with(|symbols| {
+                for symbol in symbols.iter() {
+                    if self.consume(symbol.as_str()) {
+                        return Some(*symbol);
+                    }
                 }
+                None
+            }) {
+                break 'outer Token::Symbol(symbol);
             }
 
             panic!("unexpected character '{}'", ch);

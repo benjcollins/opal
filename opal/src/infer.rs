@@ -77,7 +77,12 @@ impl FunSig {
 }
 
 pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()> {
-    let returns = fun.returns.as_ref().map(|returns| resolve_type(&returns)).transpose()?.unwrap_or(Type::Unit);
+    let returns = fun
+        .returns
+        .as_ref()
+        .map(|returns| resolve_type(&returns))
+        .transpose()?
+        .unwrap_or(Type::Unit);
 
     let mut inferer = Inferer {
         next_var_id: 0,
@@ -191,6 +196,21 @@ impl<'e> Inferer<'e> {
                 }
                 TypedStmt::Assign { var, expr }
             }
+            Stmt::AssignArith { var, op, expr } => {
+                let var = self.scope.get(var.ident()).unwrap().clone();
+                let (expr, expr_ty) = self.infer_expr(expr)?;
+                let var_ty = var.ty.as_numeric_type().ok_or(())?;
+                let expr_ty = expr_ty.as_numeric_type().ok_or(())?;
+                if expr_ty != var_ty {
+                    return Err(());
+                }
+                TypedStmt::AssignArith {
+                    var,
+                    expr,
+                    ty: expr_ty,
+                    op: *op,
+                }
+            }
             Stmt::Expr(expr) => {
                 let (expr, ty) = self.infer_expr(expr)?;
                 if ty != Type::Unit {
@@ -215,7 +235,7 @@ impl<'e> Inferer<'e> {
             Stmt::While { cond, block } => {
                 let (cond, ty) = self.infer_expr(cond)?;
                 if ty != Type::Bool {
-                    return Err(())
+                    return Err(());
                 }
                 let block = self.infer_block(block)?;
                 TypedStmt::While { cond, block }

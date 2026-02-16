@@ -10,15 +10,16 @@
 
 - Logical operators. 2SP
 - Flat memory structure for functions. 3SP
-- Assignment operators such as +=, -=, ... 2SP
 - Module scoping. 3SP
 - Snapshot testing. 2SP
+- Code coverage 1SP
 
 # IN DEV
 
 
 # DONE
 
+- Assignment operators such as +=, -=, ... 2SP
 - Comments. 1SP
 - Ability to invert conditions for more efficent while loop bytecode. 3SP
 - Integration testing with custom test harness and libtest_mimic. 5SP
