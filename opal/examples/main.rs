@@ -1,9 +1,12 @@
 use std::fs;
+use std::path::Path;
+use std::process::ExitCode;
 
+use opal::parser::parse_module;
 use opal::runtime::{Heap, Runtime};
 use opal::vm::RuntimeError;
 
-fn main() {
+fn main() -> ExitCode {
     let heap = Heap::new();
     let mut runtime = Runtime::new(&heap);
 
@@ -11,10 +14,23 @@ fn main() {
     runtime.register_native_fun(debug_float);
     runtime.register_native_fun(debug_bool);
 
-    let source = fs::read_to_string("../examples/example.opal").unwrap();
-    runtime.compile_module(&source).unwrap();
+    let path = Path::new("../examples/example.opal");
+    let source = fs::read_to_string(path).unwrap();
+    let (module, errors) = parse_module(&source, Some(path));
+    let module = match module {
+        Some(module) if errors.is_empty() => module,
+        _ => {
+            for error in errors {
+                println!("{}", error);
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.compile_module(&module).unwrap();
 
     runtime.execute_fun("main").unwrap();
+
+    ExitCode::SUCCESS
 }
 
 #[opal_proc::fun]

@@ -3,10 +3,9 @@ use std::{collections::HashMap, ops::ControlFlow};
 use elsa::FrozenVec;
 
 use crate::{
-    ast::{Ident, ModuleItem},
+    ast::{Ident, Module, ModuleItem},
     infer::{FunSig, Type, infer_fun, resolve_type},
     lower::{CompiledFun, lower_fun},
-    parser::parse_module,
     vm::{Fun, RuntimeError, VM, Value},
 };
 
@@ -55,9 +54,7 @@ impl<'h> Runtime<'h> {
         self.env.insert(Ident::new(fun.name), fun.sig());
         self.env2.insert(Ident::new(fun.name), Fun::Native(fun.fun));
     }
-    pub fn compile_module(&mut self, source: &str) -> Result<(), ()> {
-        let module = parse_module(source).map_err(|_| ())?;
-
+    pub fn compile_module(&mut self, module: &Module) -> Result<(), ()> {
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {

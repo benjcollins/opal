@@ -11,13 +11,15 @@
 - Module scoping. 3SP
 - Snapshot testing. 2SP
 - Arrays. 8SP
+- String interner should probably be syncable
+- Type error reporting
 
 # IN DEV
 
-- Error reporting.
 
 # DONE
 
+- Syntax error reporting
 - Code coverage 1SP
 - Assignment operators such as +=, -=, ... 2SP
 - Comments. 1SP

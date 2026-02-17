@@ -1,43 +1,107 @@
+use std::{collections::HashMap, fmt, mem::take, path::Path};
+
+use colored::Colorize;
+
 use crate::{
     ast::{
         ArithOp, Block, CompOp, Else, Expr, Fun, Ident, If, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef,
         VarUse,
     },
     lexer::{Lexer, Span},
-    token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenType},
+    token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
 };
 
-pub struct Parser<'s> {
+pub struct Parser<'s, 'p> {
+    pub path: Option<&'p Path>,
     pub lexer: Lexer<'s>,
     pub token: Option<(Token<'s>, Span)>,
     pub expected: Vec<TokenKind>,
-    pub errors: Vec<ParseError>,
-    pub recover: Vec<TokenKind>,
+    pub errors: Vec<ParseError<'s, 'p>>,
+    pub recover: HashMap<TokenKind, u32>,
 }
 
-pub struct ParseError {
-    span: Option<Span>,
+#[derive(Debug)]
+pub struct ParseError<'s, 'p> {
+    path: Option<&'p Path>,
+    token: Option<(Token<'s>, Span)>,
     expected: Vec<TokenKind>,
+    line: u32,
+    column: u32,
+    source: &'s str,
 }
 
-impl<'s> Parser<'s> {
-    pub fn new(source: &'s str) -> Parser<'s> {
+impl fmt::Display for ParseError<'_, '_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let path = self
+            .path
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<source>".to_string());
+        write!(
+            f,
+            "{}: {}:{}:{} ",
+            "syntax error".red().bold(),
+            path.cyan(),
+            self.line.to_string().cyan(),
+            self.column.to_string().cyan()
+        )?;
+        if let Some((_, span)) = &self.token {
+            writeln!(
+                f,
+                "unexpected token {}",
+                format!("'{}'", &self.source[span.start..span.end]).yellow()
+            )?;
+        } else {
+            writeln!(f, "unexpected {}", "end of file".yellow())?;
+        }
+        write!(f, "  expected one of: ")?;
+        for (i, expected) in self.expected.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", expected.to_string().green())?;
+        }
+        Ok(())
+    }
+}
+
+type Prec = u8;
+
+pub struct Recovered(Option<TokenKind>);
+
+fn line_column(source: &str, offset: usize) -> (u32, u32) {
+    let mut line = 1;
+    let mut column = 1;
+    for c in source[..offset].chars() {
+        if c == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    (line, column)
+}
+
+impl<'s, 'p> Parser<'s, 'p> {
+    pub fn new(source: &'s str, path: Option<&'p Path>) -> Parser<'s, 'p> {
         let mut lexer = Lexer::new(source);
         let token = lexer.next_token();
         Parser {
+            path,
             lexer,
             token,
             expected: Vec::new(),
             errors: Vec::new(),
+            recover: HashMap::new(),
         }
     }
-    fn expect<T>(&mut self, token: impl TokenType<Contents<'s> = T>) -> Option<T> {
+    fn expect<T>(&mut self, token: impl TokenMatcher<Contents<'s> = T>) -> Result<T, Recovered> {
         match self.consume(token) {
-            Some(token) => Some(token),
-            None => None,
+            Some(token) => Ok(token),
+            None => Err(self.error()),
         }
     }
-    fn consume<T>(&mut self, token_type: impl TokenType<Contents<'s> = T>) -> Option<T> {
+    fn consume<T>(&mut self, token_type: impl TokenMatcher<Contents<'s> = T>) -> Option<T> {
         let (token, span) = self.token.take()?;
         match token_type.matches(token) {
             Ok(item) => {
@@ -52,253 +116,276 @@ impl<'s> Parser<'s> {
             }
         }
     }
-    fn consume2(&mut self, token: impl TokenType) -> bool {
+    fn advance(&mut self, token: impl TokenMatcher) -> bool {
         self.consume(token).is_some()
     }
-    fn error(&mut self) {
-        if let Some((_, span)) = self.token;
-        self.errors.push(ParseError { span: (), expected: () });
-    }
-}
-
-pub fn parse_value(parser: &mut Parser) -> Option<Expr> {
-    if let Some(value) = parser.consume(Int) {
-        return Some(Expr::Lit(Lit::Int(value)));
-    }
-    if let Some(value) = parser.consume(Float) {
-        return Some(Expr::Lit(Lit::Float(value)));
-    }
-    if parser.consume2(Symbol::OpenParen) {
-        if parser.consume2(Symbol::CloseParen) {
-            return Some(Expr::Lit(Lit::Unit));
+    fn error(&mut self) -> Recovered {
+        let span = self.token.as_ref().map(|(_, span)| *span).unwrap_or(Span {
+            start: self.lexer.source.len(),
+            end: self.lexer.source.len(),
+        });
+        let (line, column) = line_column(self.lexer.source, span.start);
+        self.errors.push(ParseError {
+            token: self.token.clone(),
+            expected: take(&mut self.expected),
+            path: self.path,
+            line,
+            column,
+            source: self.lexer.source,
+        });
+        loop {
+            let Some((token, _)) = &self.token else {
+                return Recovered(None);
+            };
+            let kind = token.kind();
+            if self.recover.get(&kind).copied().unwrap_or(0) > 0 {
+                self.token = self.lexer.next_token();
+                return Recovered(Some(kind));
+            };
+            self.token = self.lexer.next_token();
         }
-        let expr = parse_expr(parser, 0)?;
-        parser.expect(Symbol::CloseParen)?;
-        return Some(Expr::Paren(Box::new(expr)));
     }
-    if parser.consume2(Keyword::True) {
-        return Some(Expr::Lit(Lit::Bool(true)));
+    fn recover<T>(
+        &mut self,
+        token: TokenKind,
+        mut parse_fn: impl FnMut(&mut Parser) -> Result<T, Recovered>,
+    ) -> Result<Option<T>, Recovered> {
+        *self.recover.entry(token).or_insert(0) += 1;
+        let res = parse_fn(self);
+        *self.recover.get_mut(&token).unwrap() -= 1;
+        match res {
+            Ok(value) => Ok(Some(value)),
+            Err(Recovered(Some(kind))) if token == kind => Ok(None),
+            Err(Recovered(r)) => Err(Recovered(r)),
+        }
     }
-    if parser.consume2(Keyword::False) {
-        return Some(Expr::Lit(Lit::Bool(false)));
-    }
-    if let Some(ident) = parser.consume(token::Ident) {
-        return parse_value_ident(parser, Ident::new(ident));
-    }
-    None
-}
-
-pub fn parse_value_ident(parser: &mut Parser, ident: Ident) -> Option<Expr> {
-    if parser.consume2(Symbol::OpenParen) {
-        let args = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
-            parse_expr(parser, 0)
-        })?;
-        return Some(Expr::Call(ident, args));
-    }
-    Some(Expr::Var(VarUse(ident)))
-}
-
-type Prec = u8;
-
-pub fn parse_expr(parser: &mut Parser, prec: Prec) -> Option<Expr> {
-    let left = parse_value(parser)?;
-    parse_infix(parser, left, prec)
-}
-
-pub fn parse_infix(parser: &mut Parser, mut left: Expr, prec: Prec) -> Option<Expr> {
-    const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
-        (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 3),
-        (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 3),
-        //
-        (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 3),
-        (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 2),
-        (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 2),
-        //
-        (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 1),
-        (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 1),
-        (Symbol::Less, InfixOp::Comp(CompOp::Less), 1),
-        (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 1),
-        (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 1),
-        (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 1),
-    ];
-    'outer: loop {
-        for (symbol, infix_op, op_prec) in INFIX_OPS {
-            if *op_prec > prec && parser.consume2(*symbol) {
-                let right = parse_expr(parser, *op_prec)?;
-                left = Expr::Infix {
-                    left: Box::new(left),
-                    op: *infix_op,
-                    right: Box::new(right),
-                };
-                continue 'outer;
+    fn parse_value(&mut self) -> Result<Expr, Recovered> {
+        if let Some(value) = self.consume(Int) {
+            return Ok(Expr::Lit(Lit::Int(value)));
+        }
+        if let Some(value) = self.consume(Float) {
+            return Ok(Expr::Lit(Lit::Float(value)));
+        }
+        if self.advance(Symbol::OpenParen) {
+            if self.advance(Symbol::CloseParen) {
+                return Ok(Expr::Lit(Lit::Unit));
             }
+            let expr = self.parse_expr(0)?;
+            self.expect(Symbol::CloseParen)?;
+            return Ok(Expr::Paren(Box::new(expr)));
         }
-        break;
-    }
-    Some(left)
-}
-
-pub fn parse_var_def(parser: &mut Parser) -> Option<VarDef> {
-    let mutable = parser.consume2(Keyword::Mut);
-    let ident = Ident::new(parser.expect(token::Ident)?);
-    Some(VarDef { mutable, ident })
-}
-
-pub fn parse_if(parser: &mut Parser) -> Option<If> {
-    parser.expect(Symbol::OpenParen)?;
-    let cond = parse_expr(parser, 0)?;
-    parser.expect(Symbol::CloseParen)?;
-    let if_block = parse_block(parser)?;
-    let else_ = if parser.consume2(Keyword::Else) {
-        if parser.consume2(Keyword::If) {
-            Else::If(Box::new(parse_if(parser)?))
-        } else {
-            Else::Block(parse_block(parser)?)
+        if self.advance(Keyword::True) {
+            return Ok(Expr::Lit(Lit::Bool(true)));
         }
-    } else {
-        Else::Nothing
-    };
-    Some(If { cond, if_block, else_ })
-}
-
-pub fn parse_stmt(parser: &mut Parser) -> Option<Stmt> {
-    if parser.consume2(Keyword::Let) {
-        let var = parse_var_def(parser)?;
-        parser.expect(Symbol::Equals);
-        let expr = parse_expr(parser, 0)?;
-        parser.expect(Symbol::Semicolon);
-        return Some(Stmt::Let { var, expr });
+        if self.advance(Keyword::False) {
+            return Ok(Expr::Lit(Lit::Bool(false)));
+        }
+        if let Some(ident) = self.consume(token::Ident) {
+            return self.parse_value_ident(Ident::new(ident));
+        }
+        Err(self.error())
     }
-    if parser.consume2(Keyword::Return) {
-        let expr = if !parser.consume2(Symbol::Semicolon) {
-            let expr = parse_expr(parser, 0)?;
-            parser.expect(Symbol::Semicolon)?;
-            Some(expr)
-        } else {
-            None
-        };
-        return Some(Stmt::Return(expr));
+    pub fn parse_value_ident(&mut self, ident: Ident) -> Result<Expr, Recovered> {
+        if self.advance(Symbol::OpenParen) {
+            let args = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
+            return Ok(Expr::Call(ident, args));
+        }
+        Ok(Expr::Var(VarUse(ident)))
     }
-    if let Some(ident) = parser.consume(token::Ident) {
-        if parser.consume2(Symbol::Equals) {
-            let var = VarUse(Ident::new(ident));
-            let expr = parse_expr(parser, 0)?;
-            parser.expect(Symbol::Semicolon)?;
-            return Some(Stmt::Assign { var, expr });
-        };
-
-        const ARITH_ASSIGN_OPS: &[(ArithOp, Symbol)] = &[
-            (ArithOp::Add, Symbol::PlusEquals),
-            (ArithOp::Subtract, Symbol::MinusEquals),
-            (ArithOp::Multiply, Symbol::StarEquals),
-            (ArithOp::Divide, Symbol::SlashEquals),
-            (ArithOp::Modulus, Symbol::PercentEquals),
+    pub fn parse_expr(&mut self, prec: Prec) -> Result<Expr, Recovered> {
+        let left = self.parse_value()?;
+        self.parse_infix(left, prec)
+    }
+    pub fn parse_infix(&mut self, mut left: Expr, prec: Prec) -> Result<Expr, Recovered> {
+        const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
+            (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 3),
+            (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 3),
+            //
+            (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 3),
+            (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 2),
+            (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 2),
+            //
+            (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 1),
+            (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 1),
+            (Symbol::Less, InfixOp::Comp(CompOp::Less), 1),
+            (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 1),
+            (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 1),
+            (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 1),
         ];
-
-        for &(op, symbol) in ARITH_ASSIGN_OPS {
-            if parser.consume2(symbol) {
-                let var = VarUse(Ident::new(ident));
-                let expr = parse_expr(parser, 0)?;
-                parser.expect(Symbol::Semicolon)?;
-                return Some(Stmt::AssignArith { var, op, expr });
+        'outer: loop {
+            for (symbol, infix_op, op_prec) in INFIX_OPS {
+                if *op_prec > prec && self.advance(*symbol) {
+                    let right = self.parse_expr(*op_prec)?;
+                    left = Expr::Infix {
+                        left: Box::new(left),
+                        op: *infix_op,
+                        right: Box::new(right),
+                    };
+                    continue 'outer;
+                }
             }
-        }
-
-        let left = parse_value_ident(parser, Ident::new(ident))?;
-        let expr = parse_infix(parser, left, 0)?;
-        parser.expect(Symbol::Semicolon)?;
-        return Some(Stmt::Expr(expr));
-    }
-    if parser.consume2(Keyword::If) {
-        return Some(Stmt::If(parse_if(parser)?));
-    }
-    if parser.consume2(Keyword::While) {
-        parser.expect(Symbol::OpenParen)?;
-        let cond = parse_expr(parser, 0)?;
-        parser.expect(Symbol::CloseParen)?;
-        let block = parse_block(parser)?;
-        return Some(Stmt::While { cond, block });
-    }
-    let expr = parse_expr(parser, 0)?;
-    parser.expect(Symbol::Semicolon)?;
-    Some(Stmt::Expr(expr))
-}
-
-pub fn parse_block(parser: &mut Parser) -> Option<Block> {
-    parser.expect(Symbol::OpenBrace)?;
-    let mut stmts = vec![];
-    while !parser.consume2(Symbol::CloseBrace) {
-        stmts.push(parse_stmt(parser)?);
-    }
-    Some(Block { stmts })
-}
-
-pub fn parse_separated<T, SEP: TokenType, TERM: TokenType>(
-    parser: &mut Parser,
-    sep: SEP,
-    term: TERM,
-    parse_fn: impl Fn(&mut Parser) -> Option<T>,
-) -> Option<Vec<T>> {
-    let mut vec = vec![];
-    while !parser.consume2(term.clone()) {
-        vec.push(parse_fn(parser)?);
-        if !parser.consume2(sep.clone()) {
-            parser.expect(term)?;
             break;
         }
+        Ok(left)
     }
-    Some(vec)
-}
-
-pub fn parse_type(parser: &mut Parser) -> Option<Type> {
-    let ident = Ident::new(parser.expect(token::Ident)?);
-    Some(Type(ident))
-}
-
-pub fn parse_module_item(parser: &mut Parser) -> Option<ModuleItem> {
-    if parser.consume2(Keyword::Fun) {
-        let name = Ident::new(parser.expect(token::Ident)?);
-        parser.expect(Symbol::OpenParen)?;
-        let params = parse_separated(parser, Symbol::Comma, Symbol::CloseParen, |parser| {
-            let var = parse_var_def(parser)?;
-            parser.expect(Symbol::Colon)?;
-            let ty = parse_type(parser)?;
-            Some((var, ty))
-        })?;
-        let returns = if parser.consume2(Symbol::RightArrow) {
-            Some(parse_type(parser)?)
+    pub fn parse_var_def(&mut self) -> Result<VarDef, Recovered> {
+        let mutable = self.advance(Keyword::Mut);
+        let ident = Ident::new(self.expect(token::Ident)?);
+        Ok(VarDef { mutable, ident })
+    }
+    pub fn parse_if(&mut self) -> Result<If, Recovered> {
+        self.expect(Symbol::OpenParen)?;
+        let cond = self.parse_expr(0)?;
+        self.expect(Symbol::CloseParen)?;
+        let if_block = self.parse_block()?;
+        let else_ = if self.advance(Keyword::Else) {
+            if self.advance(Keyword::If) {
+                Else::If(Box::new(self.parse_if()?))
+            } else {
+                Else::Block(self.parse_block()?)
+            }
         } else {
-            None
+            Else::Nothing
         };
-        let block = parse_block(parser)?;
-        Some(ModuleItem::Fun(Fun {
-            name,
-            params,
-            returns,
-            block,
-        }))
-    } else {
-        None
+        Ok(If { cond, if_block, else_ })
+    }
+    pub fn parse_stmt(&mut self) -> Result<Stmt, Recovered> {
+        if self.advance(Keyword::Let) {
+            let var = self.parse_var_def()?;
+            self.expect(Symbol::Equals)?;
+            let expr = self.parse_expr(0)?;
+            self.expect(Symbol::Semicolon)?;
+            return Ok(Stmt::Let { var, expr });
+        }
+        if self.advance(Keyword::Return) {
+            let expr = if !self.advance(Symbol::Semicolon) {
+                let expr = self.parse_expr(0)?;
+                self.expect(Symbol::Semicolon)?;
+                Some(expr)
+            } else {
+                None
+            };
+            return Ok(Stmt::Return(expr));
+        }
+        if let Some(ident) = self.consume(token::Ident) {
+            if self.advance(Symbol::Equals) {
+                let var = VarUse(Ident::new(ident));
+                let expr = self.parse_expr(0)?;
+                self.expect(Symbol::Semicolon)?;
+                return Ok(Stmt::Assign { var, expr });
+            };
+
+            const ARITH_ASSIGN_OPS: &[(ArithOp, Symbol)] = &[
+                (ArithOp::Add, Symbol::PlusEquals),
+                (ArithOp::Subtract, Symbol::MinusEquals),
+                (ArithOp::Multiply, Symbol::StarEquals),
+                (ArithOp::Divide, Symbol::SlashEquals),
+                (ArithOp::Modulus, Symbol::PercentEquals),
+            ];
+
+            for &(op, symbol) in ARITH_ASSIGN_OPS {
+                if self.advance(symbol) {
+                    let var = VarUse(Ident::new(ident));
+                    let expr = self.parse_expr(0)?;
+                    self.expect(Symbol::Semicolon)?;
+                    return Ok(Stmt::AssignArith { var, op, expr });
+                }
+            }
+
+            let left = self.parse_value_ident(Ident::new(ident))?;
+            let expr = self.parse_infix(left, 0)?;
+            self.expect(Symbol::Semicolon)?;
+            return Ok(Stmt::Expr(expr));
+        }
+        if self.advance(Keyword::If) {
+            return Ok(Stmt::If(self.parse_if()?));
+        }
+        if self.advance(Keyword::While) {
+            self.expect(Symbol::OpenParen)?;
+            let cond = self.parse_expr(0)?;
+            self.expect(Symbol::CloseParen)?;
+            let block = self.parse_block()?;
+            return Ok(Stmt::While { cond, block });
+        }
+        let expr = self.parse_expr(0)?;
+        self.expect(Symbol::Semicolon)?;
+        Ok(Stmt::Expr(expr))
+    }
+    pub fn parse_block(&mut self) -> Result<Block, Recovered> {
+        self.expect(Symbol::OpenBrace)?;
+        let mut stmts = vec![];
+        self.recover(TokenKind::Symbol(Symbol::CloseBrace), |self_| {
+            while !self_.advance(Symbol::CloseBrace) {
+                let stmt = self_.recover(TokenKind::Symbol(Symbol::Semicolon), |self_| self_.parse_stmt())?;
+                if let Some(stmt) = stmt {
+                    stmts.push(stmt);
+                }
+            }
+            Ok(())
+        })?;
+        Ok(Block { stmts })
+    }
+    pub fn parse_separated<T, SEP: TokenMatcher, TERM: TokenMatcher>(
+        &mut self,
+        sep: SEP,
+        term: TERM,
+        parse_fn: impl Fn(&mut Parser) -> Result<T, Recovered>,
+    ) -> Result<Vec<T>, Recovered> {
+        let mut vec = vec![];
+        while !self.advance(term.clone()) {
+            vec.push(parse_fn(self)?);
+            if !self.advance(sep.clone()) {
+                self.expect(term)?;
+                break;
+            }
+        }
+        Ok(vec)
+    }
+    pub fn parse_type(&mut self) -> Result<Type, Recovered> {
+        let ident = Ident::new(self.expect(token::Ident)?);
+        Ok(Type(ident))
+    }
+    pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {
+        if self.advance(Keyword::Fun) {
+            let name = Ident::new(self.expect(token::Ident)?);
+            self.expect(Symbol::OpenParen)?;
+            let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
+                let var = self_.parse_var_def()?;
+                self_.expect(Symbol::Colon)?;
+                let ty = self_.parse_type()?;
+                Ok((var, ty))
+            })?;
+            let returns = if self.advance(Symbol::RightArrow) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            let block = self.parse_block()?;
+            Ok(ModuleItem::Fun(Fun {
+                name,
+                params,
+                returns,
+                block,
+            }))
+        } else {
+            Err(self.error())
+        }
+    }
+    fn parse_module(&mut self) -> Result<Module, Recovered> {
+        self.expect(Keyword::Module)?;
+        let name = Ident::new(self.expect(token::Ident)?);
+        self.expect(Symbol::Semicolon)?;
+
+        let mut items = vec![];
+        while self.token.is_some() {
+            items.push(self.parse_module_item()?);
+        }
+
+        Ok(Module { name, items })
     }
 }
 
-pub fn parse_module<'s>(source: &'s str) -> Result<Module, Vec<ParseError<'s>>> {
-    let mut parser = Parser::new(source);
-
-    let module = (|parser: &mut Parser| {
-        parser.expect(Keyword::Module)?;
-        let name = Ident::new(parser.expect(token::Ident)?);
-        parser.expect(Symbol::Semicolon)?;
-        let mut items = vec![];
-        while parser.token.is_some() {
-            items.push(parse_module_item(parser)?);
-        }
-        Some(Module { name, items })
-    })(&mut parser);
-
-    // module.ok_or_else(|| ParseError {
-    //     source,
-    //     span: parser.token.map(|(_, span)| span),
-    //     expected: parser.expected,
-    // })
+pub fn parse_module<'s, 'p>(source: &'s str, path: Option<&'p Path>) -> (Option<Module>, Vec<ParseError<'s, 'p>>) {
+    let mut self_ = Parser::new(source, path);
+    (self_.parse_module().ok(), self_.errors)
 }

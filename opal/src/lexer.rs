@@ -1,4 +1,4 @@
-use std::{cell::LazyCell, str::FromStr};
+use std::{cell::LazyCell, cmp::Reverse, str::FromStr};
 
 use strum::IntoEnumIterator;
 
@@ -18,7 +18,7 @@ pub struct Span {
 thread_local! {
     static SYMBOLS: LazyCell<&'static [Symbol]> = LazyCell::new(|| {
         let mut symbols = Vec::from_iter(Symbol::iter());
-        symbols.sort_by(|a, b| b.as_str().len().cmp(&a.as_str().len()));
+        symbols.sort_by_key(|a| Reverse(a.as_str().len()));
         symbols.leak()
     });
 }

@@ -48,7 +48,7 @@ impl InternedStr {
             }
         });
         InternedStr {
-            index: index as u16,
+            index,
             _marker: PhantomData,
         }
     }

@@ -1,6 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
-use strum::{EnumIter, EnumString};
+use strum::{Display, EnumIter, EnumString};
 
 #[derive(Debug, Clone)]
 pub enum Token<'s> {
@@ -12,7 +12,7 @@ pub enum Token<'s> {
     String(Cow<'s, str>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     Ident,
     Int,
@@ -22,7 +22,7 @@ pub enum TokenKind {
     String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Hash, Display)]
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Fun,
@@ -37,7 +37,7 @@ pub enum Keyword {
     While,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash)]
 pub enum Symbol {
     RightArrow,
     OpenParen,
@@ -98,14 +98,40 @@ impl Symbol {
     }
 }
 
-pub trait TokenType: Clone {
+impl<'s> Token<'s> {
+    pub fn kind(&self) -> TokenKind {
+        match self {
+            Token::Ident(_) => TokenKind::Ident,
+            Token::Int(_) => TokenKind::Int,
+            Token::Float(_) => TokenKind::Float,
+            &Token::Keyword(keyword) => TokenKind::Keyword(keyword),
+            &Token::Symbol(symbol) => TokenKind::Symbol(symbol),
+            Token::String(_) => TokenKind::String,
+        }
+    }
+}
+
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenKind::Ident => write!(f, "identifier"),
+            TokenKind::Int => write!(f, "integer literal"),
+            TokenKind::Float => write!(f, "float literal"),
+            TokenKind::Keyword(keyword) => write!(f, "'{}'", keyword),
+            TokenKind::Symbol(symbol) => write!(f, "'{}'", symbol.as_str()),
+            TokenKind::String => write!(f, "string literal"),
+        }
+    }
+}
+
+pub trait TokenMatcher: Clone {
     type Contents<'s>;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<Self::Contents<'s>, Token<'s>>;
     fn kind(&self) -> TokenKind;
 }
 
-impl TokenType for Symbol {
+impl TokenMatcher for Symbol {
     type Contents<'s> = ();
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
@@ -120,7 +146,7 @@ impl TokenType for Symbol {
     }
 }
 
-impl TokenType for Keyword {
+impl TokenMatcher for Keyword {
     type Contents<'s> = ();
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
@@ -138,7 +164,7 @@ impl TokenType for Keyword {
 #[derive(Debug, Clone, Copy)]
 pub struct Ident;
 
-impl TokenType for Ident {
+impl TokenMatcher for Ident {
     type Contents<'s> = &'s str;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<&'s str, Token<'s>> {
@@ -156,7 +182,7 @@ impl TokenType for Ident {
 #[derive(Debug, Clone, Copy)]
 pub struct Int;
 
-impl TokenType for Int {
+impl TokenMatcher for Int {
     type Contents<'s> = i64;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<i64, Token<'s>> {
@@ -174,7 +200,7 @@ impl TokenType for Int {
 #[derive(Debug, Clone, Copy)]
 pub struct Float;
 
-impl TokenType for Float {
+impl TokenMatcher for Float {
     type Contents<'s> = f64;
 
     fn matches<'s>(&self, token: Token<'s>) -> Result<f64, Token<'s>> {
