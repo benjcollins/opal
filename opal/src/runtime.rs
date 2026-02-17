@@ -36,6 +36,12 @@ pub struct Runtime<'h> {
     env2: HashMap<Ident, Fun<'h>>,
 }
 
+impl Default for Heap<'_> {
+    fn default() -> Self {
+        Heap::new()
+    }
+}
+
 impl<'h> Heap<'h> {
     pub fn new() -> Heap<'h> {
         Heap { funs: FrozenVec::new() }

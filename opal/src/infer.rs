@@ -80,7 +80,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()
     let returns = fun
         .returns
         .as_ref()
-        .map(|returns| resolve_type(&returns))
+        .map(resolve_type)
         .transpose()?
         .unwrap_or(Type::Unit);
 

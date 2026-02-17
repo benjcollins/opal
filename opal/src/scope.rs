@@ -6,14 +6,23 @@ pub struct Scope<K, V> {
     blocks: Vec<usize>,
 }
 
-impl<K: Hash + Eq + Clone, V> Scope<K, V> {
-    pub fn new() -> Scope<K, V> {
+impl<K: Hash + Eq, V> Default for Scope<K, V> {
+    fn default() -> Self {
+        Scope::new()
+    }
+}
+
+impl<K: Hash + Eq, V> Scope<K, V> {
+    pub fn new() -> Self {
         Scope {
             map: HashMap::new(),
             aliases: Vec::new(),
             blocks: Vec::new(),
         }
     }
+}
+
+impl<K: Hash + Eq + Clone, V> Scope<K, V> {
     pub fn enter_block(&mut self) {
         self.blocks.push(self.aliases.len());
     }

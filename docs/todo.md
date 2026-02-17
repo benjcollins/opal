@@ -6,16 +6,18 @@
 
 # READY FOR DEV
 
-- Logical operators. 2SP
+- Bitwise operators. 2SP
 - Flat memory structure for functions. 3SP
 - Module scoping. 3SP
 - Snapshot testing. 2SP
 - Arrays. 8SP
 - String interner should probably be syncable
 - Type error reporting
+- Span information in AST nodes
 
 # IN DEV
 
+- Logical operators. 3SP
 
 # DONE
 

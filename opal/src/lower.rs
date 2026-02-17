@@ -99,11 +99,11 @@ impl<'f> Lowerer<'f> {
     fn lower_expr_val(&mut self, expr: &TypedExpr) -> Val {
         match expr {
             TypedExpr::Lit(lit) => {
-                let cst = match lit {
-                    &Lit::Int(value) => self.get_const(Value::from_int(value)),
-                    &Lit::Float(value) => self.get_const(Value::from_float(value)),
-                    &Lit::Bool(value) => self.get_const(Value::from_bool(value)),
-                    &Lit::Unit => self.get_const(Value::from_unit(())),
+                let cst = match *lit {
+                    Lit::Int(value) => self.get_const(Value::from_int(value)),
+                    Lit::Float(value) => self.get_const(Value::from_float(value)),
+                    Lit::Bool(value) => self.get_const(Value::from_bool(value)),
+                    Lit::Unit => self.get_const(Value::from_unit(())),
                 };
                 Val::Cst(cst)
             }

@@ -20,6 +20,12 @@ impl<'b, L> Drop for InstrBuilder<'b, L> {
     }
 }
 
+impl Default for BytecodeBuffer<()> {
+    fn default() -> Self {
+        BytecodeBuffer::new()
+    }
+}
+
 impl<L: Hash + Eq> BytecodeBuffer<L> {
     pub fn new() -> BytecodeBuffer<L> {
         BytecodeBuffer {

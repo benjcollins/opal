@@ -72,12 +72,12 @@ impl<'src> Lexer<'src> {
             }
 
             if ch.is_alphabetic() || ch == '_' {
-                while self.peek().map_or(false, |ch| ch.is_alphanumeric() || ch == '_') {
+                while self.peek().is_some_and(|ch| ch.is_alphanumeric() || ch == '_') {
                     self.advance();
                 }
                 let ident = &self.source[start..self.offset];
                 break Keyword::from_str(ident)
-                    .map(|keyword| Token::Keyword(keyword))
+                    .map(Token::Keyword)
                     .unwrap_or(Token::Ident(ident));
             }
 
@@ -87,7 +87,7 @@ impl<'src> Lexer<'src> {
                     value = (value * 10) + digit as i64;
                     self.advance();
                 }
-                if self.peek().map_or(false, |ch| ch == '.') {
+                if self.peek().is_some_and(|ch| ch == '.') {
                     self.advance();
                     let mut value = value as f64;
                     let mut div = 1.0;
