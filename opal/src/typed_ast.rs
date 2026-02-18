@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{ArithOp, Ident, InfixOp, Lit},
+    ast::{ArithOp, CompOp, Ident, InfixOp, Lit, LogicalOp},
     infer::{NumericType, Type},
 };
 
@@ -17,6 +17,13 @@ pub struct TypedVar {
 }
 
 #[derive(Debug, Clone)]
+pub enum TypedInfixOp {
+    Arith(ArithOp, NumericType),
+    Comp(CompOp, NumericType),
+    Logical(LogicalOp),
+}
+
+#[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
     Call {
@@ -27,8 +34,7 @@ pub enum TypedExpr {
     Infix {
         left: Box<TypedExpr>,
         right: Box<TypedExpr>,
-        op: InfixOp,
-        ty: NumericType,
+        op: TypedInfixOp,
     },
 }
 

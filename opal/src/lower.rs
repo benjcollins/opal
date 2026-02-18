@@ -1,11 +1,11 @@
 use std::{cell::Cell, collections::HashMap};
 
 use crate::{
-    ast::{ArithOp, CompOp, Ident, InfixOp, Lit},
+    ast::{ArithOp, CompOp, Ident, Lit, LogicalOp},
     bytecode::BytecodeBuffer,
     infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
-    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedStmt, VarId},
+    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, VarId},
     vm::Value,
 };
 
@@ -140,16 +140,43 @@ impl<'f> Lowerer<'f> {
             (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fbge(src1, src2, label),
         }
     }
+    fn lower_expr_logical_branch(
+        &mut self,
+        left: &TypedExpr,
+        right: &TypedExpr,
+        op: LogicalOp,
+        target: Label,
+        branch_if: bool,
+    ) {
+        match (op, branch_if) {
+            (LogicalOp::And, branch_if @ true) | (LogicalOp::Or, branch_if @ false) => {
+                let skip = self.new_label();
+                self.lower_expr_branch(left, skip, !branch_if);
+                self.lower_expr_branch(right, target, branch_if);
+                self.bytecode.label(skip);
+            }
+            (LogicalOp::And, branch_if @ false) | (LogicalOp::Or, branch_if @ true) => {
+                self.lower_expr_branch(left, target, branch_if);
+                self.lower_expr_branch(right, target, branch_if);
+            }
+        }
+    }
     fn lower_expr_branch(&mut self, expr: &TypedExpr, label: Label, branch_if: bool) {
         match expr {
             TypedExpr::Infix {
                 left,
                 right,
-                op: InfixOp::Comp(op),
-                ty,
+                op: TypedInfixOp::Comp(op, ty),
             } => {
                 let op = if branch_if { *op } else { op.invert() };
                 self.lower_expr_comp_branch(left, right, op, label, *ty)
+            }
+            TypedExpr::Infix {
+                left,
+                right,
+                op: TypedInfixOp::Logical(op),
+            } => {
+                self.lower_expr_logical_branch(left, right, *op, label, branch_if);
             }
             _ => {
                 let val = self.lower_expr_val(expr);
@@ -191,12 +218,26 @@ impl<'f> Lowerer<'f> {
     }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         match expr {
-            TypedExpr::Infix { left, right, op, ty } => {
+            TypedExpr::Infix { left, right, op } => {
                 let src1 = self.lower_expr_val(left);
                 let src2 = self.lower_expr_val(right);
-                match op {
-                    InfixOp::Arith(op) => self.lower_infix_arith(*op, *ty, dst, src1, src2),
-                    InfixOp::Comp(op) => self.lower_infix_comp(*op, *ty, dst, src1, src2),
+                match *op {
+                    TypedInfixOp::Arith(op, ty) => self.lower_infix_arith(op, ty, dst, src1, src2),
+                    TypedInfixOp::Comp(op, ty) => self.lower_infix_comp(op, ty, dst, src1, src2),
+                    TypedInfixOp::Logical(op) => {
+                        let if_true = self.new_label();
+                        let if_false = self.new_label();
+
+                        let false_val = self.get_const(Value::from_bool(false));
+                        let true_val = self.get_const(Value::from_bool(true));
+
+                        self.lower_expr_logical_branch(left, right, op, if_true, true);
+                        self.bytecode.instr().mov(dst, Val::Cst(false_val));
+                        self.bytecode.instr().jmp(if_false);
+                        self.bytecode.label(if_true);
+                        self.bytecode.instr().mov(dst, Val::Cst(true_val));
+                        self.bytecode.label(if_false);
+                    }
                 }
             }
             TypedExpr::Call { name, args } => {

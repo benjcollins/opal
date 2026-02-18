@@ -4,8 +4,8 @@ use colored::Colorize;
 
 use crate::{
     ast::{
-        ArithOp, Block, CompOp, Else, Expr, Fun, Ident, If, InfixOp, Lit, Module, ModuleItem, Stmt, Type, VarDef,
-        VarUse,
+        ArithOp, Block, CompOp, Else, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp, Module, ModuleItem, Stmt, Type,
+        VarDef, VarUse,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
@@ -198,19 +198,22 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_infix(&mut self, mut left: Expr, prec: Prec) -> Result<Expr, Recovered> {
         const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
-            (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 3),
-            (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 3),
+            (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 5),
+            (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 5),
+            (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 5),
             //
-            (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 3),
-            (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 2),
-            (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 2),
+            (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 4),
+            (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 4),
             //
-            (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 1),
-            (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 1),
-            (Symbol::Less, InfixOp::Comp(CompOp::Less), 1),
-            (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 1),
-            (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 1),
-            (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 1),
+            (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 3),
+            (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 3),
+            (Symbol::Less, InfixOp::Comp(CompOp::Less), 3),
+            (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 3),
+            (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 3),
+            (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 3),
+            //
+            (Symbol::DoubleAmpersand, InfixOp::Logical(LogicalOp::And), 2),
+            (Symbol::DoublePipe, InfixOp::Logical(LogicalOp::Or), 1),
         ];
         'outer: loop {
             for (symbol, infix_op, op_prec) in INFIX_OPS {

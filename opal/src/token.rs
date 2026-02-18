@@ -64,6 +64,8 @@ pub enum Symbol {
     StarEquals,
     SlashEquals,
     PercentEquals,
+    DoubleAmpersand,
+    DoublePipe,
 }
 
 impl Symbol {
@@ -94,6 +96,8 @@ impl Symbol {
             Symbol::StarEquals => "*=",
             Symbol::SlashEquals => "/=",
             Symbol::PercentEquals => "%=",
+            Symbol::DoubleAmpersand => "&&",
+            Symbol::DoublePipe => "||",
         }
     }
 }

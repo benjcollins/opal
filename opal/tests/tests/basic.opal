@@ -52,6 +52,45 @@ fun test_float_comp_branch() {
     if (5.0 <= 2.0) { fail(); }
 }
 
+fun test_logical_op() {
+    assert(true && true);
+    if (true && false) { fail(); }
+    if (false && true) { fail(); }
+    if (false && false) { fail(); }
+
+    assert(true || true);
+    assert(true || false);
+    assert(false || true);
+    if (false || false) { fail(); }
+}
+
+fun test_logical_op_invert() {
+    while (true && false) { fail(); }
+    while (false && true) { fail(); }
+    while (false && false) { fail(); }
+    while (false || false) { fail(); }
+}
+
+fun test_invert_and_true_true() {
+    while (true && true) { return; }
+    fail();
+}
+
+fun test_invert_or_true_true() {
+    while (true || true) { return; }
+    fail();
+}
+
+fun test_invert_or_true_false() {
+    while (true || false) { return; }
+    fail();
+}
+
+fun test_invert_or_false_true() {
+    while (false || true) { return; }
+    fail();
+}
+
 fun test_branch() {
     let b = false;
     if (b) {

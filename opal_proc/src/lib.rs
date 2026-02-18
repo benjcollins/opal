@@ -9,7 +9,7 @@ pub fn fun(_: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn inner(item: TokenStream2) -> TokenStream2 {
-    let item_fn = syn::parse2::<ItemFn>(item.into()).expect("expected a function");
+    let item_fn = syn::parse2::<ItemFn>(item).expect("expected a function");
 
     let fn_name = item_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
@@ -52,5 +52,5 @@ fn inner(item: TokenStream2) -> TokenStream2 {
         };
     };
 
-    output.into()
+    output
 }

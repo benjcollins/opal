@@ -14,13 +14,16 @@
 - String interner should probably be syncable
 - Type error reporting
 - Span information in AST nodes
+- Unary ops
+- Generate dissasembled bytecode for debugging
+- Break and continue statements
 
 # IN DEV
 
-- Logical operators. 3SP
 
 # DONE
 
+- Logical operators. 3SP
 - Syntax error reporting
 - Code coverage 1SP
 - Assignment operators such as +=, -=, ... 2SP

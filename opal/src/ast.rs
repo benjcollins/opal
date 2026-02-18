@@ -49,6 +49,7 @@ pub enum Expr {
 pub enum InfixOp {
     Arith(ArithOp),
     Comp(CompOp),
+    Logical(LogicalOp),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +69,12 @@ pub enum CompOp {
     Less,
     LessEqual,
     GreaterEqual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicalOp {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone)]

@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::{
     ast::{self, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
     scope::Scope,
-    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedStmt, TypedVar, VarId},
+    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,23 +142,39 @@ impl<'e> Inferer<'e> {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
                 let (right_expr, right_ty) = self.infer_expr(right)?;
 
-                let left_ty = left_ty.as_numeric_type().ok_or(())?;
-                let right_ty = right_ty.as_numeric_type().ok_or(())?;
+                let (op, ty) = match op {
+                    InfixOp::Arith(op) => {
+                        let left_ty = left_ty.as_numeric_type().ok_or(())?;
+                        let right_ty = right_ty.as_numeric_type().ok_or(())?;
 
-                if left_ty != right_ty {
-                    return Err(());
-                }
+                        if left_ty != right_ty {
+                            return Err(());
+                        }
+
+                        (TypedInfixOp::Arith(*op, left_ty), left_ty.into())
+                    }
+                    InfixOp::Comp(op) => {
+                        let left_ty = left_ty.as_numeric_type().ok_or(())?;
+                        let right_ty = right_ty.as_numeric_type().ok_or(())?;
+
+                        if left_ty != right_ty {
+                            return Err(());
+                        }
+
+                        (TypedInfixOp::Comp(*op, left_ty), Type::Bool)
+                    }
+                    InfixOp::Logical(op) => {
+                        if left_ty != Type::Bool || right_ty != Type::Bool {
+                            return Err(());
+                        }
+                        (TypedInfixOp::Logical(*op), Type::Bool)
+                    }
+                };
 
                 let typed_expr = TypedExpr::Infix {
                     left: Box::new(left_expr),
-                    op: *op,
-                    ty: left_ty,
+                    op,
                     right: Box::new(right_expr),
-                };
-
-                let ty = match op {
-                    InfixOp::Arith(_) => left_ty.into(),
-                    InfixOp::Comp(_) => Type::Bool,
                 };
 
                 (typed_expr, ty)
