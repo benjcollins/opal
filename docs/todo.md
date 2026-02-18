@@ -1,22 +1,22 @@
 # BACKLOG
 
 - Debugger.
-- CLI.
 - Escape analysis for functions
+- CLI.
 
 # READY FOR DEV
 
-- Bitwise operators. 2SP
-- Flat memory structure for functions. 3SP
-- Module scoping. 3SP
-- Snapshot testing. 2SP
-- Arrays. 8SP
-- String interner should probably be syncable
-- Type error reporting
-- Span information in AST nodes
-- Unary ops
-- Break and continue statements
-- Equality with booleans
+- Bitwise operators. EASY
+- Flat memory structure for functions. MEDIUM
+- Module scoping. MEDIUM
+- Snapshot testing. MEDIUM
+- Arrays. HARD
+- String interner should probably be syncable. HARD
+- Type error reporting. MEDIUM
+- Span information in AST nodes. MEDIUM
+- Unary ops. EASY
+- Break and continue statements. MEDIUM
+- Equality with booleans. EASY
 
 # IN DEV
 

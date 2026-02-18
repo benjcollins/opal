@@ -54,7 +54,10 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     let path = format!("tests/bytecode/{}.bcode", module.name.0);
     if !fs::exists(&path)? {
         let mut file = File::create(&path)?;
-        for (name, fun) in &runtime.funs {
+        let mut fun_names: Vec<_> = runtime.funs.keys().collect();
+        fun_names.sort_by_key(|name| name.0.as_str());
+        for name in fun_names {
+            let fun = runtime.funs.get(name).unwrap();
             if let Fun::Compiled(fun) = fun {
                 writeln!(file, "{}:", name.0)?;
                 for instr in &fun.bytecode {
