@@ -1,5 +1,13 @@
 module basic;
 
+// line comment /* 
+    block comment inside of line comment
+*/ still a comment
+
+/* block comment
+    // line comment inside of block comment
+*/
+
 fun test_int_arith() {
     assert(5 + 2 == 7);
     assert(5 - 2 == 3);
@@ -43,6 +51,15 @@ fun test_int_comp_branch() {
     if (5 <= 2) { fail(); }
 }
 
+fun test_int_comp_branch_invert() {
+    while (5 == 2) { fail(); }
+    while (5 != 5) { fail(); }
+    while (5 < 2) { fail(); }
+    while (2 > 5) { fail(); }
+    while (5 >= 9) { fail(); }
+    while (5 <= 2) { fail(); }
+}
+
 fun test_float_comp_branch() {
     if (5.0 == 2.0) { fail(); }
     if (5.0 != 5.0) { fail(); }
@@ -50,6 +67,15 @@ fun test_float_comp_branch() {
     if (2.0 > 5.0) { fail(); }
     if (5.0 >= 9.0) { fail(); }
     if (5.0 <= 2.0) { fail(); }
+}
+
+fun test_float_comp_branch_invert() {
+    while (5.0 == 2.0) { fail(); }
+    while (5.0 != 5.0) { fail(); }
+    while (5.0 < 2.0) { fail(); }
+    while (2.0 > 5.0) { fail(); }
+    while (5.0 >= 9.0) { fail(); }
+    while (5.0 <= 2.0) { fail(); }
 }
 
 fun test_logical_op() {
@@ -69,6 +95,23 @@ fun test_logical_op_invert() {
     while (false && true) { fail(); }
     while (false && false) { fail(); }
     while (false || false) { fail(); }
+
+    /* todo these needs equality with bools or unary not option
+    let x = true;
+    while (x && x) { x = false; }
+    assert(x == false);
+
+    let x = true;
+    while (x || x) { x = false; }
+    assert(x == false);
+
+    let x = true;
+    while (x || false) { x = false; }
+    assert(x == false);
+
+    let x = true;
+    while (false || x) { x = false; }
+    assert(x == false); */
 }
 
 fun test_invert_and_true_true() {

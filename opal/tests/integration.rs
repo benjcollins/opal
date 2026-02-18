@@ -3,9 +3,15 @@ use opal::{
     ast::ModuleItem,
     parser::parse_module,
     runtime::{Heap, Runtime},
-    vm::RuntimeError,
+    vm::{Fun, RuntimeError},
 };
-use std::{error::Error, fs, path::Path, sync::Arc};
+use std::{
+    error::Error,
+    fs::{self, File},
+    io::Write,
+    path::Path,
+    sync::Arc,
+};
 
 #[opal_proc::fun]
 fn assert(value: bool) -> Result<(), RuntimeError> {
@@ -43,6 +49,22 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     runtime
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
+
+    fs::create_dir_all("tests/bytecode")?;
+    let path = format!("tests/bytecode/{}.bcode", module.name.0);
+    if !fs::exists(&path)? {
+        let mut file = File::create(&path)?;
+        for (name, fun) in &runtime.funs {
+            if let Fun::Compiled(fun) = fun {
+                writeln!(file, "{}:", name.0)?;
+                for instr in &fun.bytecode {
+                    writeln!(file, "  {}", instr)?;
+                }
+                writeln!(file)?;
+            }
+        }
+    }
+
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())
 }
@@ -52,6 +74,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut tests = vec![];
 
+    fs::remove_dir_all("tests/bytecode")?;
+
     for item in fs::read_dir("tests/tests")? {
         let item = item?;
         let path = item.path();
@@ -59,8 +83,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         if item.file_type()?.is_file() && path.extension().unwrap().to_str().unwrap() == "opal" {
             let source = Arc::new(fs::read_to_string(&path)?);
             let (module, errors) = parse_module(&source, Some(&path));
-            assert!(errors.is_empty());
-            let module = module.unwrap();
+            let module = match module {
+                Some(module) if errors.is_empty() => module,
+                _ => {
+                    for error in errors {
+                        println!("{}", error);
+                    }
+                    panic!("failed to parse module");
+                }
+            };
 
             for item in module.items {
                 let ModuleItem::Fun(fun) = item;

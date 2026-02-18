@@ -44,17 +44,19 @@ impl<'src> Lexer<'src> {
         }
     }
     fn skip_line_comment(&mut self) {
-        while !self.consume("\n") {
+        while self.peek().is_some() && !self.consume("\n") {
             if self.consume("/*") {
                 self.skip_block_comment();
+                continue;
             }
             self.advance();
         }
     }
     fn skip_block_comment(&mut self) {
-        while !self.consume("*/") {
+        while self.peek().is_some() && !self.consume("*/") {
             if self.consume("//") {
                 self.skip_line_comment();
+                continue;
             }
             self.advance();
         }

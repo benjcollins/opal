@@ -32,8 +32,8 @@ pub struct Heap<'h> {
 
 pub struct Runtime<'h> {
     heap: &'h Heap<'h>,
-    env: HashMap<Ident, FunSig>,
-    env2: HashMap<Ident, Fun<'h>>,
+    fun_sigs: HashMap<Ident, FunSig>,
+    pub funs: HashMap<Ident, Fun<'h>>,
 }
 
 impl Default for Heap<'_> {
@@ -52,13 +52,13 @@ impl<'h> Runtime<'h> {
     pub fn new(heap: &'h Heap<'h>) -> Runtime<'h> {
         Runtime {
             heap,
-            env: HashMap::new(),
-            env2: HashMap::new(),
+            fun_sigs: HashMap::new(),
+            funs: HashMap::new(),
         }
     }
     pub fn register_native_fun(&mut self, fun: NativeFun) {
-        self.env.insert(Ident::new(fun.name), fun.sig());
-        self.env2.insert(Ident::new(fun.name), Fun::Native(fun.fun));
+        self.fun_sigs.insert(Ident::new(fun.name), fun.sig());
+        self.funs.insert(Ident::new(fun.name), Fun::Native(fun.fun));
     }
     pub fn compile_module(&mut self, module: &Module) -> Result<(), ()> {
         for item in &module.items {
@@ -74,7 +74,7 @@ impl<'h> Runtime<'h> {
                         .as_ref()
                         .map(|ty| resolve_type(ty).unwrap())
                         .unwrap_or(Type::Unit);
-                    self.env.insert(fun.name.clone(), FunSig::new(params, returns));
+                    self.fun_sigs.insert(fun.name.clone(), FunSig::new(params, returns));
                 }
             }
         }
@@ -84,18 +84,18 @@ impl<'h> Runtime<'h> {
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
-                    let typed_fun = infer_fun(fun, &self.env).unwrap();
+                    let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
                     let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
                     let fun_ref = self.heap.funs.push_get(Box::new(compiled_fun));
                     funs_to_patch.push((fun_ref, fun_ptrs));
-                    self.env2.insert(fun.name.clone(), Fun::Compiled(fun_ref));
+                    self.funs.insert(fun.name.clone(), Fun::Compiled(fun_ref));
                 }
             }
         }
 
         for (fun_to_patch, fun_ptrs) in funs_to_patch {
             for (target_fun_name, index) in fun_ptrs {
-                let fun = self.env2.get(&target_fun_name).unwrap();
+                let fun = self.funs.get(&target_fun_name).unwrap();
                 fun_to_patch.consts[index as usize].set(Value::from_fun(*fun));
             }
         }
@@ -103,7 +103,7 @@ impl<'h> Runtime<'h> {
         Ok(())
     }
     pub fn execute_fun(&mut self, name: &str) -> Result<(), RuntimeError> {
-        let Fun::Compiled(fun) = self.env2.get(&Ident::new(name)).unwrap() else {
+        let Fun::Compiled(fun) = self.funs.get(&Ident::new(name)).unwrap() else {
             panic!()
         };
 

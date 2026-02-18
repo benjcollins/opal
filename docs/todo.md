@@ -15,14 +15,15 @@
 - Type error reporting
 - Span information in AST nodes
 - Unary ops
-- Generate dissasembled bytecode for debugging
 - Break and continue statements
+- Equality with booleans
 
 # IN DEV
 
 
 # DONE
 
+- Generate dissasembled bytecode for debugging
 - Logical operators. 3SP
 - Syntax error reporting
 - Code coverage 1SP

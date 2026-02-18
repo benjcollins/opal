@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{ArithOp, CompOp, Ident, InfixOp, Lit, LogicalOp},
+    ast::{ArithOp, CompOp, Ident, Lit, LogicalOp},
     infer::{NumericType, Type},
 };
 
