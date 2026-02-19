@@ -218,9 +218,14 @@ impl<'e> Inferer<'e> {
 
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(TypedStmt, bool), TypeError> {
         Ok(match stmt {
-            Stmt::Let { var, expr } => {
-                let (expr, ty) = self.infer_expr(expr)?;
-                let var = self.insert_var(var, ty);
+            Stmt::Let { var, ty, expr } => {
+                let (expr, expr_ty) = self.infer_expr(expr)?;
+                if let Some(ty) = ty {
+                    if expr_ty != resolve_type(ty)? {
+                        return Err(TypeError("wrong type annotation!"));
+                    }
+                }
+                let var = self.insert_var(var, expr_ty);
                 (TypedStmt::Let { var, expr }, false)
             }
             Stmt::Assign { var, expr } => {

@@ -1,5 +1,5 @@
 module main;
 
 fun main() {
-    assert(true && );
+    let data: Int = 3;
 }

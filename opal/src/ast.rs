@@ -84,7 +84,7 @@ pub enum LogicalOp {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Let { var: VarDef, expr: Expr },
+    Let { var: VarDef, ty: Option<Type>, expr: Expr },
     Assign { var: VarUse, expr: Expr },
     AssignArith { var: VarUse, op: ArithOp, expr: Expr },
     Return(Option<Expr>),

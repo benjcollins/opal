@@ -255,10 +255,15 @@ impl<'s, 'p> Parser<'s, 'p> {
     pub fn parse_stmt(&mut self) -> Result<Stmt, Recovered> {
         if self.advance(Keyword::Let) {
             let var = self.parse_var_def()?;
+            let ty = if self.advance(Symbol::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
             self.expect(Symbol::Equals)?;
             let expr = self.parse_expr(0)?;
             self.expect(Symbol::Semicolon)?;
-            return Ok(Stmt::Let { var, expr });
+            return Ok(Stmt::Let { var, ty, expr });
         }
         if self.advance(Keyword::Return) {
             let expr = if !self.advance(Symbol::Semicolon) {

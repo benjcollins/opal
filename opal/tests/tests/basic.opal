@@ -1,6 +1,6 @@
 module basic;
 
-// line comment /* 
+// line comment /*
     block comment inside of line comment
 */ still a comment
 
