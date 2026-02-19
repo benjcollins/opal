@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     marker::PhantomData,
     mem::transmute,
     ops::{ControlFlow, Neg},
@@ -83,6 +84,18 @@ impl ValueConv for () {
         Value::from_unit(())
     }
     fn from_value<'h>(_: Value<'h>) -> Self {}
+}
+
+impl ValueConv for Infallible {
+    const TYPE: Type = Type::Void;
+
+    fn into_value<'h>(self) -> Value<'h> {
+        match self {}
+    }
+
+    fn from_value<'h>(_: Value<'h>) -> Self {
+        unreachable!()
+    }
 }
 
 impl<'f> Value<'f> {
@@ -218,9 +231,6 @@ impl<'f> VM<'f> {
     }
 
     pub fn execute_next_instr(&mut self) -> Result<ControlFlow<(), ()>, RuntimeError> {
-        if self.ip >= self.fun.bytecode.len() {
-            return self.ret(Value::from_unit(()));
-        }
         let instr = self.fun.bytecode[self.ip];
 
         match instr.op() {

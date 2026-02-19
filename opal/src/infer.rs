@@ -12,6 +12,7 @@ pub enum Type {
     Float,
     Bool,
     Unit,
+    Void,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,16 +56,18 @@ fn infer_lit(lit: &Lit) -> Type {
     }
 }
 
-pub fn resolve_type(ty: &ast::Type) -> Result<Type, ()> {
+pub fn resolve_type(ty: &ast::Type) -> Result<Type, TypeError> {
     Ok(match ty.0.0.as_str() {
         "Int" => Type::Int,
         "Float" => Type::Float,
         "Bool" => Type::Bool,
         "Unit" => Type::Unit,
-        _ => return Err(()),
+        "Void" => Type::Void,
+        _ => return Err(TypeError("invalid type name")),
     })
 }
 
+#[derive(Debug, Clone)]
 pub struct FunSig {
     pub params: Vec<Type>,
     pub returns: Type,
@@ -76,7 +79,10 @@ impl FunSig {
     }
 }
 
-pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()> {
+#[derive(Debug, Clone)]
+pub struct TypeError(&'static str);
+
+pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, TypeError> {
     let returns = fun
         .returns
         .as_ref()
@@ -97,6 +103,9 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()
         params.push(inferer.insert_var(var, ty));
     }
     let block = inferer.infer_block(&fun.block)?;
+    if !block.diverges && returns != Type::Unit {
+        return Err(TypeError("missing return"));
+    }
     inferer.scope.exit_block();
     Ok(TypedFun {
         name: fun.name.clone(),
@@ -107,7 +116,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, ()
 }
 
 impl<'e> Inferer<'e> {
-    fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), ()> {
+    fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), TypeError> {
         let (typed_expr, ty) = match expr {
             Expr::Lit(lit) => {
                 let typed_expr = TypedExpr::Lit(*lit);
@@ -115,7 +124,7 @@ impl<'e> Inferer<'e> {
                 (typed_expr, ty)
             }
             Expr::Call(name, args) => {
-                let fun_sig = self.env.get(name).ok_or(())?;
+                let fun_sig = self.env.get(name).ok_or(TypeError("undefined function"))?;
                 let mut typed_args = vec![];
                 let mut arg_tys = vec![];
                 for arg in args {
@@ -124,7 +133,7 @@ impl<'e> Inferer<'e> {
                     arg_tys.push(arg_ty);
                 }
                 if arg_tys != fun_sig.params {
-                    return Err(());
+                    return Err(TypeError("incorrect function arguments"));
                 }
                 let expr = TypedExpr::Call {
                     name: name.clone(),
@@ -144,30 +153,38 @@ impl<'e> Inferer<'e> {
 
                 let (op, ty) = match *op {
                     InfixOp::Arith(op) => {
-                        let left_ty = left_ty.as_numeric_type().ok_or(())?;
-                        let right_ty = right_ty.as_numeric_type().ok_or(())?;
+                        let left_ty = left_ty
+                            .as_numeric_type()
+                            .ok_or(TypeError("arithmetic operand left operand is not number"))?;
+                        let right_ty = right_ty
+                            .as_numeric_type()
+                            .ok_or(TypeError("arithmetic operand right operand is not number"))?;
                         if left_ty != right_ty {
-                            return Err(());
+                            return Err(TypeError("arithmetic operands type mismatch"));
                         }
                         (TypedInfixOp::Arith(op, left_ty), left_ty.into())
                     }
                     InfixOp::Comp(op) => {
-                        let left_ty = left_ty.as_numeric_type().ok_or(())?;
-                        let right_ty = right_ty.as_numeric_type().ok_or(())?;
+                        let left_ty = left_ty
+                            .as_numeric_type()
+                            .ok_or(TypeError("comparison operand left operand is not number"))?;
+                        let right_ty = right_ty
+                            .as_numeric_type()
+                            .ok_or(TypeError("comparison operand right operand is not number"))?;
                         if left_ty != right_ty {
-                            return Err(());
+                            return Err(TypeError("comparison operands type mismatch"));
                         }
                         (TypedInfixOp::Comp(op, left_ty), Type::Bool)
                     }
                     InfixOp::Logical(op) => {
                         if left_ty != Type::Bool || right_ty != Type::Bool {
-                            return Err(());
+                            return Err(TypeError("logical operands incorrect type"));
                         }
                         (TypedInfixOp::Logical(op), Type::Bool)
                     }
                     InfixOp::Equality(op) => {
                         if left_ty != right_ty {
-                            return Err(());
+                            return Err(TypeError("equality operands type mismatch"));
                         }
                         (TypedInfixOp::Equality(op), Type::Bool)
                     }
@@ -199,89 +216,114 @@ impl<'e> Inferer<'e> {
         var
     }
 
-    fn infer_stmt(&mut self, stmt: &Stmt) -> Result<TypedStmt, ()> {
+    fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(TypedStmt, bool), TypeError> {
         Ok(match stmt {
             Stmt::Let { var, expr } => {
                 let (expr, ty) = self.infer_expr(expr)?;
                 let var = self.insert_var(var, ty);
-                TypedStmt::Let { var, expr }
+                (TypedStmt::Let { var, expr }, false)
             }
             Stmt::Assign { var, expr } => {
                 let var = self.scope.get(var.ident()).unwrap().clone();
                 let (expr, ty) = self.infer_expr(expr)?;
                 if ty != var.ty {
-                    return Err(());
+                    return Err(TypeError("assignment type mismatch"));
                 }
-                TypedStmt::Assign { var, expr }
+                (TypedStmt::Assign { var, expr }, false)
             }
             Stmt::AssignArith { var, op, expr } => {
                 let var = self.scope.get(var.ident()).unwrap().clone();
                 let (expr, expr_ty) = self.infer_expr(expr)?;
-                let var_ty = var.ty.as_numeric_type().ok_or(())?;
-                let expr_ty = expr_ty.as_numeric_type().ok_or(())?;
+                let var_ty = var
+                    .ty
+                    .as_numeric_type()
+                    .ok_or(TypeError("assign arith type mismatch"))?;
+                let expr_ty = expr_ty
+                    .as_numeric_type()
+                    .ok_or(TypeError("assign arith type mismatch"))?;
                 if expr_ty != var_ty {
-                    return Err(());
+                    return Err(TypeError("assign arith type mismatch"));
                 }
-                TypedStmt::AssignArith {
+                let stmt = TypedStmt::AssignArith {
                     var,
-                    expr,
-                    ty: expr_ty,
+                    ty: var_ty,
                     op: *op,
-                }
+                    expr,
+                };
+                (stmt, false)
             }
             Stmt::Expr(expr) => {
                 let (expr, ty) = self.infer_expr(expr)?;
-                if ty != Type::Unit {
-                    return Err(());
-                }
-                TypedStmt::Expr(expr)
+                let diverges = match ty {
+                    Type::Unit => false,
+                    Type::Void => true,
+                    _ => return Err(TypeError("invalid statement expression")),
+                };
+                (TypedStmt::Expr(expr), diverges)
             }
             Stmt::Return(Some(expr)) => {
                 let (expr, ty) = self.infer_expr(expr)?;
                 if ty != self.returns {
-                    return Err(());
+                    return Err(TypeError("incorrect return type"));
                 }
-                TypedStmt::Return(expr)
+                (TypedStmt::Return(expr), true)
             }
             Stmt::Return(None) => {
                 if Type::Unit != self.returns {
-                    return Err(());
+                    return Err(TypeError("incorrect return type"));
                 }
-                TypedStmt::Return(TypedExpr::Lit(Lit::Unit))
+                (TypedStmt::Return(TypedExpr::Lit(Lit::Unit)), true)
             }
-            Stmt::If(if_) => TypedStmt::If(self.infer_if(if_)?),
+            Stmt::If(if_) => {
+                let (if_, diverges) = self.infer_if(if_)?;
+                (TypedStmt::If(if_), diverges)
+            }
             Stmt::While { cond, block } => {
                 let (cond, ty) = self.infer_expr(cond)?;
                 if ty != Type::Bool {
-                    return Err(());
+                    return Err(TypeError("while condition must be bool"));
                 }
                 let block = self.infer_block(block)?;
-                TypedStmt::While { cond, block }
+                (TypedStmt::While { cond, block }, false)
             }
         })
     }
 
-    fn infer_if(&mut self, if_: &If) -> Result<TypedIf, ()> {
+    fn infer_if(&mut self, if_: &If) -> Result<(TypedIf, bool), TypeError> {
         let (cond, ty) = self.infer_expr(&if_.cond)?;
         if ty != Type::Bool {
-            return Err(());
+            return Err(TypeError("if condition must be bool"));
         }
         let if_block = self.infer_block(&if_.if_block)?;
-        let else_ = match &if_.else_ {
-            Else::If(if_) => TypedElse::If(Box::new(self.infer_if(if_)?)),
-            Else::Block(block) => TypedElse::Block(self.infer_block(block)?),
-            Else::Nothing => TypedElse::Nothing,
+        let (else_, else_diverges) = match &if_.else_ {
+            Else::If(if_) => {
+                let (if_, diverges) = self.infer_if(if_)?;
+                (TypedElse::If(Box::new(if_)), diverges)
+            }
+            Else::Block(block) => {
+                let block = self.infer_block(block)?;
+                let diverges = block.diverges;
+                (TypedElse::Block(block), diverges)
+            }
+            Else::Nothing => (TypedElse::Nothing, false),
         };
-        Ok(TypedIf { cond, if_block, else_ })
+        let diverges = if_block.diverges && else_diverges;
+        Ok((TypedIf { cond, if_block, else_ }, diverges))
     }
 
-    fn infer_block(&mut self, block: &Block) -> Result<TypedBlock, ()> {
+    fn infer_block(&mut self, block: &Block) -> Result<TypedBlock, TypeError> {
         let mut stmts = vec![];
         self.scope.enter_block();
+        let mut diverges = false;
         for stmt in &block.stmts {
-            stmts.push(self.infer_stmt(stmt)?);
+            let (stmt, stmt_diverges) = self.infer_stmt(stmt)?;
+            stmts.push(stmt);
+            if stmt_diverges {
+                diverges = true;
+                break;
+            }
         }
         self.scope.exit_block();
-        Ok(TypedBlock { stmts })
+        Ok(TypedBlock { stmts, diverges })
     }
 }

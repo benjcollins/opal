@@ -7,4 +7,5 @@ test_shadowing:
   CALL r(2), c(2), 3;
   SEQ r(2), r(0), c(0);
   CALL r(1), c(3), 2;
+  RET c(4);
 

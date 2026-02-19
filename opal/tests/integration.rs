@@ -6,6 +6,7 @@ use opal::{
     vm::{Fun, RuntimeError},
 };
 use std::{
+    convert::Infallible,
     error::Error,
     fs::{self, File},
     io::Write,
@@ -31,7 +32,7 @@ fn print_float(value: f64) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn fail() -> Result<(), RuntimeError> {
+fn fail() -> Result<Infallible, RuntimeError> {
     Err(RuntimeError)
 }
 

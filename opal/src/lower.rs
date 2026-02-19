@@ -45,13 +45,15 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
         lowerer.vars.insert(param.id, reg);
     }
     lowerer.lower_block(&fun.block);
-    (
-        CompiledFun {
-            consts: lowerer.consts.into_iter().map(Cell::new).collect(),
-            bytecode: lowerer.bytecode.finish(),
-        },
-        lowerer.fun_ptrs,
-    )
+    if !fun.block.diverges {
+        let unit = lowerer.get_const(Value::from_unit(()));
+        lowerer.bytecode.instr().ret(Val::Cst(unit));
+    }
+    let fun = CompiledFun {
+        consts: lowerer.consts.into_iter().map(Cell::new).collect(),
+        bytecode: lowerer.bytecode.finish(),
+    };
+    (fun, lowerer.fun_ptrs)
 }
 
 impl<'f> Lowerer<'f> {
@@ -328,21 +330,38 @@ impl<'f> Lowerer<'f> {
             }
         }
     }
-    pub fn lower_if(&mut self, if_: &TypedIf) {
-        let if_true = self.new_label();
-        let if_false = self.new_label();
-
-        self.lower_expr_branch(&if_.cond, if_true, true);
-        match &if_.else_ {
+    pub fn lower_else(&mut self, else_: &TypedElse) {
+        match else_ {
             TypedElse::If(if_) => self.lower_if(if_),
             TypedElse::Block(block) => self.lower_block(block),
             TypedElse::Nothing => (),
         }
-        self.bytecode.instr().jmp(if_false);
+    }
+    pub fn lower_if(&mut self, if_: &TypedIf) {
+        if if_.if_block.diverges {
+            let else_label = self.new_label();
+            self.lower_expr_branch(&if_.cond, else_label, false);
+            self.lower_block(&if_.if_block);
+            self.bytecode.label(else_label);
+            self.lower_else(&if_.else_);
+        } else if else_diverges(&if_.else_) {
+            let if_label = self.new_label();
+            self.lower_expr_branch(&if_.cond, if_label, true);
+            self.lower_else(&if_.else_);
+            self.bytecode.label(if_label);
+            self.lower_block(&if_.if_block);
+        } else {
+            let if_label = self.new_label();
+            let exit_label = self.new_label();
 
-        self.bytecode.label(if_true);
-        self.lower_block(&if_.if_block);
-        self.bytecode.label(if_false);
+            self.lower_expr_branch(&if_.cond, if_label, true);
+            self.lower_else(&if_.else_);
+            self.bytecode.instr().jmp(exit_label);
+
+            self.bytecode.label(if_label);
+            self.lower_block(&if_.if_block);
+            self.bytecode.label(exit_label);
+        }
     }
     pub fn lower_block(&mut self, block: &TypedBlock) {
         self.enter_stack_frame();
@@ -350,5 +369,13 @@ impl<'f> Lowerer<'f> {
             self.lower_stmt(stmt);
         }
         self.exit_stack_frame();
+    }
+}
+
+pub fn else_diverges(else_: &TypedElse) -> bool {
+    match else_ {
+        TypedElse::If(if_) => if_.if_block.diverges && else_diverges(&if_.else_),
+        TypedElse::Block(block) => block.diverges,
+        TypedElse::Nothing => false,
     }
 }

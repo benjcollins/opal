@@ -81,6 +81,7 @@ pub enum TypedElse {
 #[derive(Debug, Clone)]
 pub struct TypedBlock {
     pub stmts: Vec<TypedStmt>,
+    pub diverges: bool,
 }
 
 #[derive(Debug, Clone)]

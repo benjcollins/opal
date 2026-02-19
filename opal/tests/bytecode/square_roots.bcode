@@ -1,9 +1,8 @@
 abs:
-  FBLT c(0), r(0), 4;
+  FBLE r(0), c(0), 2;
+  RET r(0);
   FSUB r(1), c(0), r(0);
   RET r(1);
-  JMP 2;
-  RET r(0);
 
 approx_square_root:
   FDIV r(2), r(0), c(0);
@@ -25,6 +24,7 @@ test_approx_square_root_123:
   CALL r(2), c(3), 3;
   FSLT r(4), r(2), c(5);
   CALL r(3), c(4), 4;
+  RET c(6);
 
 test_approx_square_root_738:
   MOV r(0), c(0);
@@ -35,4 +35,5 @@ test_approx_square_root_738:
   CALL r(2), c(3), 3;
   FSLT r(4), r(2), c(5);
   CALL r(3), c(4), 4;
+  RET c(6);
 

@@ -1,7 +1,6 @@
 # BACKLOG
 
 - Debugger.
-- Escape analysis for functions
 - CLI.
 
 # READY FOR DEV
@@ -21,7 +20,7 @@
 
 
 # DONE
-
+- Diverge checks MEDIUM
 - Equality with booleans. EASY
 - Generate dissasembled bytecode for debugging
 - Logical operators. 3SP
