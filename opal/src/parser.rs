@@ -4,8 +4,8 @@ use colored::Colorize;
 
 use crate::{
     ast::{
-        ArithOp, Block, CompOp, Else, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp, Module, ModuleItem, Stmt, Type,
-        VarDef, VarUse,
+        ArithOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp, Module, ModuleItem,
+        Stmt, Type, VarDef, VarUse,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
@@ -205,8 +205,8 @@ impl<'s, 'p> Parser<'s, 'p> {
             (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 4),
             (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 4),
             //
-            (Symbol::DoubleEquals, InfixOp::Comp(CompOp::Equal), 3),
-            (Symbol::BangEquals, InfixOp::Comp(CompOp::NotEqual), 3),
+            (Symbol::DoubleEquals, InfixOp::Equality(EqualityOp::Equal), 3),
+            (Symbol::BangEquals, InfixOp::Equality(EqualityOp::NotEqual), 3),
             (Symbol::Less, InfixOp::Comp(CompOp::Less), 3),
             (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 3),
             (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 3),

@@ -142,32 +142,34 @@ impl<'e> Inferer<'e> {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
                 let (right_expr, right_ty) = self.infer_expr(right)?;
 
-                let (op, ty) = match op {
+                let (op, ty) = match *op {
                     InfixOp::Arith(op) => {
                         let left_ty = left_ty.as_numeric_type().ok_or(())?;
                         let right_ty = right_ty.as_numeric_type().ok_or(())?;
-
                         if left_ty != right_ty {
                             return Err(());
                         }
-
-                        (TypedInfixOp::Arith(*op, left_ty), left_ty.into())
+                        (TypedInfixOp::Arith(op, left_ty), left_ty.into())
                     }
                     InfixOp::Comp(op) => {
                         let left_ty = left_ty.as_numeric_type().ok_or(())?;
                         let right_ty = right_ty.as_numeric_type().ok_or(())?;
-
                         if left_ty != right_ty {
                             return Err(());
                         }
-
-                        (TypedInfixOp::Comp(*op, left_ty), Type::Bool)
+                        (TypedInfixOp::Comp(op, left_ty), Type::Bool)
                     }
                     InfixOp::Logical(op) => {
                         if left_ty != Type::Bool || right_ty != Type::Bool {
                             return Err(());
                         }
-                        (TypedInfixOp::Logical(*op), Type::Bool)
+                        (TypedInfixOp::Logical(op), Type::Bool)
+                    }
+                    InfixOp::Equality(op) => {
+                        if left_ty != right_ty {
+                            return Err(());
+                        }
+                        (TypedInfixOp::Equality(op), Type::Bool)
                     }
                 };
 

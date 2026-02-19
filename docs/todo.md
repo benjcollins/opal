@@ -16,13 +16,13 @@
 - Span information in AST nodes. MEDIUM
 - Unary ops. EASY
 - Break and continue statements. MEDIUM
-- Equality with booleans. EASY
 
 # IN DEV
 
 
 # DONE
 
+- Equality with booleans. EASY
 - Generate dissasembled bytecode for debugging
 - Logical operators. 3SP
 - Syntax error reporting

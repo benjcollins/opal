@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{ArithOp, CompOp, Ident, Lit, LogicalOp},
+    ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
     infer::{NumericType, Type},
 };
 
@@ -20,6 +20,7 @@ pub struct TypedVar {
 pub enum TypedInfixOp {
     Arith(ArithOp, NumericType),
     Comp(CompOp, NumericType),
+    Equality(EqualityOp),
     Logical(LogicalOp),
 }
 

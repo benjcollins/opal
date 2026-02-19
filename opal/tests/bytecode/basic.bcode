@@ -146,73 +146,45 @@ test_int_comp_branch_invert:
   CALL r(0), c(8), 1;
   JMP -2;
 
-test_invert_and_true_true:
-  BEQ c(0), c(1), 4;
-  BEQ c(0), c(1), 3;
-  RET c(1);
-  JMP -3;
-  CALL r(0), c(2), 1;
-
-test_invert_or_false_true:
-  BEQ c(0), c(1), 2;
-  BEQ c(1), c(0), 3;
-  RET c(0);
-  JMP -3;
-  CALL r(0), c(2), 1;
-
-test_invert_or_true_false:
-  BEQ c(0), c(0), 2;
-  BEQ c(1), c(1), 3;
-  RET c(1);
-  JMP -3;
-  CALL r(0), c(2), 1;
-
-test_invert_or_true_true:
-  BEQ c(0), c(0), 2;
-  BEQ c(0), c(1), 3;
-  RET c(1);
-  JMP -3;
-  CALL r(0), c(2), 1;
-
 test_logical_op:
-  BEQ c(1), c(2), 2;
-  BEQ c(1), c(1), 3;
-  MOV r(1), c(2);
-  JMP 2;
-  MOV r(1), c(1);
-  CALL r(0), c(0), 1;
-  BEQ c(1), c(2), 2;
   BEQ c(2), c(1), 2;
+  BEQ c(2), c(2), 3;
+  MOV r(1), c(1);
+  JMP 2;
+  MOV r(1), c(2);
+  CALL r(0), c(0), 1;
+  BEQ c(2), c(1), 2;
+  BEQ c(1), c(2), 2;
   JMP 2;
   CALL r(0), c(3), 1;
-  BEQ c(2), c(2), 2;
   BEQ c(1), c(1), 2;
+  BEQ c(2), c(2), 2;
   JMP 2;
   CALL r(0), c(4), 1;
-  BEQ c(2), c(2), 2;
-  BEQ c(2), c(1), 2;
+  BEQ c(1), c(1), 2;
+  BEQ c(1), c(2), 2;
   JMP 2;
   CALL r(0), c(5), 1;
-  BEQ c(1), c(1), 4;
-  BEQ c(1), c(1), 3;
-  MOV r(1), c(2);
-  JMP 2;
+  BEQ c(2), c(2), 4;
+  BEQ c(2), c(2), 3;
   MOV r(1), c(1);
+  JMP 2;
+  MOV r(1), c(2);
   CALL r(0), c(6), 1;
-  BEQ c(1), c(1), 4;
-  BEQ c(2), c(1), 3;
-  MOV r(1), c(2);
-  JMP 2;
+  BEQ c(2), c(2), 4;
+  BEQ c(1), c(2), 3;
   MOV r(1), c(1);
+  JMP 2;
+  MOV r(1), c(2);
   CALL r(0), c(7), 1;
-  BEQ c(2), c(1), 4;
-  BEQ c(1), c(1), 3;
-  MOV r(1), c(2);
-  JMP 2;
+  BEQ c(1), c(2), 4;
+  BEQ c(2), c(2), 3;
   MOV r(1), c(1);
+  JMP 2;
+  MOV r(1), c(2);
   CALL r(0), c(8), 1;
-  BEQ c(2), c(1), 3;
-  BEQ c(2), c(1), 2;
+  BEQ c(1), c(2), 3;
+  BEQ c(1), c(2), 2;
   JMP 2;
   CALL r(0), c(9), 1;
 
@@ -233,6 +205,34 @@ test_logical_op_invert:
   BEQ c(1), c(1), 3;
   CALL r(0), c(5), 1;
   JMP -3;
+  MOV r(0), c(0);
+  BEQ r(0), c(1), 4;
+  BEQ r(0), c(1), 3;
+  MOV r(0), c(1);
+  JMP -3;
+  SEQ r(2), r(0), c(1);
+  CALL r(1), c(6), 2;
+  MOV r(1), c(0);
+  BEQ r(1), c(0), 2;
+  BEQ r(1), c(1), 3;
+  MOV r(1), c(1);
+  JMP -3;
+  SEQ r(3), r(1), c(1);
+  CALL r(2), c(7), 3;
+  MOV r(2), c(0);
+  BEQ r(2), c(0), 2;
+  BEQ c(1), c(1), 3;
+  MOV r(2), c(1);
+  JMP -3;
+  SEQ r(4), r(2), c(1);
+  CALL r(3), c(8), 4;
+  MOV r(3), c(0);
+  BEQ c(1), c(0), 2;
+  BEQ r(3), c(1), 3;
+  MOV r(3), c(1);
+  JMP -3;
+  SEQ r(5), r(3), c(1);
+  CALL r(4), c(9), 5;
 
 test_unit:
 

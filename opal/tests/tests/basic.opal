@@ -96,7 +96,6 @@ fun test_logical_op_invert() {
     while (false && false) { fail(); }
     while (false || false) { fail(); }
 
-    /* todo these needs equality with bools or unary not option
     let x = true;
     while (x && x) { x = false; }
     assert(x == false);
@@ -111,27 +110,7 @@ fun test_logical_op_invert() {
 
     let x = true;
     while (false || x) { x = false; }
-    assert(x == false); */
-}
-
-fun test_invert_and_true_true() {
-    while (true && true) { return; }
-    fail();
-}
-
-fun test_invert_or_true_true() {
-    while (true || true) { return; }
-    fail();
-}
-
-fun test_invert_or_true_false() {
-    while (true || false) { return; }
-    fail();
-}
-
-fun test_invert_or_false_true() {
-    while (false || true) { return; }
-    fail();
+    assert(x == false);
 }
 
 fun test_branch() {

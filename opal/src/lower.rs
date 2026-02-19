@@ -1,7 +1,7 @@
 use std::{cell::Cell, collections::HashMap};
 
 use crate::{
-    ast::{ArithOp, CompOp, Ident, Lit, LogicalOp},
+    ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
     bytecode::BytecodeBuffer,
     infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
@@ -52,19 +52,6 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
         },
         lowerer.fun_ptrs,
     )
-}
-
-impl CompOp {
-    fn invert(&self) -> CompOp {
-        match self {
-            CompOp::Equal => CompOp::NotEqual,
-            CompOp::NotEqual => CompOp::Equal,
-            CompOp::Greater => CompOp::LessEqual,
-            CompOp::Less => CompOp::GreaterEqual,
-            CompOp::LessEqual => CompOp::Greater,
-            CompOp::GreaterEqual => CompOp::Less,
-        }
-    }
 }
 
 impl<'f> Lowerer<'f> {
@@ -122,22 +109,50 @@ impl<'f> Lowerer<'f> {
         op: CompOp,
         label: Label,
         ty: NumericType,
+        branch_if: bool,
     ) {
         let src1 = self.lower_expr_val(left);
         let src2 = self.lower_expr_val(right);
-        match (op, ty) {
-            (CompOp::Equal, _) => self.bytecode.instr().beq(src1, src2, label),
-            (CompOp::NotEqual, _) => self.bytecode.instr().bne(src1, src2, label),
-
-            (CompOp::Less, NumericType::Int) => self.bytecode.instr().iblt(src1, src2, label),
-            (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().ible(src1, src2, label),
-            (CompOp::Greater, NumericType::Int) => self.bytecode.instr().ibgt(src1, src2, label),
-            (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().ibge(src1, src2, label),
-
-            (CompOp::Less, NumericType::Float) => self.bytecode.instr().fblt(src1, src2, label),
-            (CompOp::LessEqual, NumericType::Float) => self.bytecode.instr().fble(src1, src2, label),
-            (CompOp::Greater, NumericType::Float) => self.bytecode.instr().fbgt(src1, src2, label),
-            (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fbge(src1, src2, label),
+        match (op, ty, branch_if) {
+            (CompOp::Less, NumericType::Int, true) | (CompOp::GreaterEqual, NumericType::Int, false) => {
+                self.bytecode.instr().iblt(src1, src2, label)
+            }
+            (CompOp::LessEqual, NumericType::Int, true) | (CompOp::Greater, NumericType::Int, false) => {
+                self.bytecode.instr().ible(src1, src2, label)
+            }
+            (CompOp::Greater, NumericType::Int, true) | (CompOp::LessEqual, NumericType::Int, false) => {
+                self.bytecode.instr().ibgt(src1, src2, label)
+            }
+            (CompOp::GreaterEqual, NumericType::Int, true) | (CompOp::Less, NumericType::Int, false) => {
+                self.bytecode.instr().ibge(src1, src2, label)
+            }
+            (CompOp::Less, NumericType::Float, true) | (CompOp::GreaterEqual, NumericType::Float, false) => {
+                self.bytecode.instr().fblt(src1, src2, label)
+            }
+            (CompOp::LessEqual, NumericType::Float, true) | (CompOp::Greater, NumericType::Float, false) => {
+                self.bytecode.instr().fble(src1, src2, label)
+            }
+            (CompOp::Greater, NumericType::Float, true) | (CompOp::LessEqual, NumericType::Float, false) => {
+                self.bytecode.instr().fbgt(src1, src2, label)
+            }
+            (CompOp::GreaterEqual, NumericType::Float, true) | (CompOp::Less, NumericType::Float, false) => {
+                self.bytecode.instr().fbge(src1, src2, label)
+            }
+        }
+    }
+    fn lower_expr_equality_branch(
+        &mut self,
+        left: &TypedExpr,
+        right: &TypedExpr,
+        op: EqualityOp,
+        label: Label,
+        branch_if: bool,
+    ) {
+        let src1 = self.lower_expr_val(left);
+        let src2 = self.lower_expr_val(right);
+        match (op, branch_if) {
+            (EqualityOp::Equal, true) | (EqualityOp::NotEqual, false) => self.bytecode.instr().beq(src1, src2, label),
+            (EqualityOp::Equal, false) | (EqualityOp::NotEqual, true) => self.bytecode.instr().bne(src1, src2, label),
         }
     }
     fn lower_expr_logical_branch(
@@ -167,10 +182,12 @@ impl<'f> Lowerer<'f> {
                 left,
                 right,
                 op: TypedInfixOp::Comp(op, ty),
-            } => {
-                let op = if branch_if { *op } else { op.invert() };
-                self.lower_expr_comp_branch(left, right, op, label, *ty)
-            }
+            } => self.lower_expr_comp_branch(left, right, *op, label, *ty, branch_if),
+            TypedExpr::Infix {
+                left,
+                right,
+                op: TypedInfixOp::Equality(op),
+            } => self.lower_expr_equality_branch(left, right, *op, label, branch_if),
             TypedExpr::Infix {
                 left,
                 right,
@@ -202,9 +219,6 @@ impl<'f> Lowerer<'f> {
     }
     fn lower_infix_comp(&mut self, op: CompOp, ty: NumericType, dst: Reg, src1: Val, src2: Val) {
         match (op, ty) {
-            (CompOp::Equal, _) => self.bytecode.instr().seq(dst, src1, src2),
-            (CompOp::NotEqual, _) => self.bytecode.instr().sne(dst, src1, src2),
-
             (CompOp::Less, NumericType::Int) => self.bytecode.instr().islt(dst, src1, src2),
             (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().isle(dst, src1, src2),
             (CompOp::Greater, NumericType::Int) => self.bytecode.instr().isgt(dst, src1, src2),
@@ -216,30 +230,46 @@ impl<'f> Lowerer<'f> {
             (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fsge(dst, src1, src2),
         }
     }
+    fn lower_infix_equality(&mut self, op: EqualityOp, dst: Reg, src1: Val, src2: Val) {
+        match op {
+            EqualityOp::Equal => self.bytecode.instr().seq(dst, src1, src2),
+            EqualityOp::NotEqual => self.bytecode.instr().sne(dst, src1, src2),
+        }
+    }
+    fn lower_infix_logical(&mut self, op: LogicalOp, dst: Reg, left: &TypedExpr, right: &TypedExpr) {
+        let if_true = self.new_label();
+        let if_false = self.new_label();
+
+        let false_val = self.get_const(Value::from_bool(false));
+        let true_val = self.get_const(Value::from_bool(true));
+
+        self.lower_expr_logical_branch(left, right, op, if_true, true);
+        self.bytecode.instr().mov(dst, Val::Cst(false_val));
+        self.bytecode.instr().jmp(if_false);
+        self.bytecode.label(if_true);
+        self.bytecode.instr().mov(dst, Val::Cst(true_val));
+        self.bytecode.label(if_false);
+    }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         match expr {
-            TypedExpr::Infix { left, right, op } => {
-                let src1 = self.lower_expr_val(left);
-                let src2 = self.lower_expr_val(right);
-                match *op {
-                    TypedInfixOp::Arith(op, ty) => self.lower_infix_arith(op, ty, dst, src1, src2),
-                    TypedInfixOp::Comp(op, ty) => self.lower_infix_comp(op, ty, dst, src1, src2),
-                    TypedInfixOp::Logical(op) => {
-                        let if_true = self.new_label();
-                        let if_false = self.new_label();
-
-                        let false_val = self.get_const(Value::from_bool(false));
-                        let true_val = self.get_const(Value::from_bool(true));
-
-                        self.lower_expr_logical_branch(left, right, op, if_true, true);
-                        self.bytecode.instr().mov(dst, Val::Cst(false_val));
-                        self.bytecode.instr().jmp(if_false);
-                        self.bytecode.label(if_true);
-                        self.bytecode.instr().mov(dst, Val::Cst(true_val));
-                        self.bytecode.label(if_false);
-                    }
+            TypedExpr::Infix { left, right, op } => match *op {
+                TypedInfixOp::Arith(op, ty) => {
+                    let src1 = self.lower_expr_val(left);
+                    let src2 = self.lower_expr_val(right);
+                    self.lower_infix_arith(op, ty, dst, src1, src2)
                 }
-            }
+                TypedInfixOp::Comp(op, ty) => {
+                    let src1 = self.lower_expr_val(left);
+                    let src2 = self.lower_expr_val(right);
+                    self.lower_infix_comp(op, ty, dst, src1, src2)
+                }
+                TypedInfixOp::Equality(op) => {
+                    let src1 = self.lower_expr_val(left);
+                    let src2 = self.lower_expr_val(right);
+                    self.lower_infix_equality(op, dst, src1, src2);
+                }
+                TypedInfixOp::Logical(op) => self.lower_infix_logical(op, dst, left, right),
+            },
             TypedExpr::Call { name, args } => {
                 let fun = self.fresh_const();
                 self.fun_ptrs.push((name.clone(), fun.0));
