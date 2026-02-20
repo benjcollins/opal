@@ -38,6 +38,7 @@ pub enum Expr {
     Call(Ident, Vec<Expr>),
     Paren(Box<Expr>),
     Var(VarUse),
+    Array(Vec<Expr>),
     Infix {
         left: Box<Expr>,
         op: InfixOp,

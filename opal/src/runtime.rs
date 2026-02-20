@@ -13,7 +13,7 @@ use crate::{
 pub struct NativeFun {
     pub name: &'static str,
     pub params: &'static [Type],
-    pub returns: Type,
+    pub returns: &'static Type,
     pub fun: for<'h> fn(&[Value<'h>]) -> Result<Value<'h>, RuntimeError>,
 }
 
@@ -21,7 +21,7 @@ impl NativeFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
             params: self.params.to_vec(),
-            returns: self.returns,
+            returns: self.returns.clone(),
         }
     }
 }

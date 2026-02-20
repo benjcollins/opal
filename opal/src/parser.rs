@@ -166,6 +166,10 @@ impl<'s, 'p> Parser<'s, 'p> {
         if let Some(value) = self.consume(Float) {
             return Ok(Expr::Lit(Lit::Float(value)));
         }
+        if self.advance(Symbol::OpenBracket) {
+            let elements = self.parse_separated(Symbol::Comma, Symbol::CloseBracket, |self_| self_.parse_expr(0))?;
+            return Ok(Expr::Array(elements));
+        }
         if self.advance(Symbol::OpenParen) {
             if self.advance(Symbol::CloseParen) {
                 return Ok(Expr::Lit(Lit::Unit));

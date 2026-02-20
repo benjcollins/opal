@@ -46,7 +46,7 @@ fn inner(item: TokenStream2) -> TokenStream2 {
             NativeFun {
                 name: #fn_name_str,
                 params: &[#(<#ty as ValueConv>::TYPE),*],
-                returns: <<#ret_ty as NativeFunResult>::Output as ValueConv>::TYPE,
+                returns: &<<#ret_ty as NativeFunResult>::Output as ValueConv>::TYPE,
                 fun: inner,
             }
         };

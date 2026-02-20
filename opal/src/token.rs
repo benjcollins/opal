@@ -66,6 +66,8 @@ pub enum Symbol {
     PercentEquals,
     DoubleAmpersand,
     DoublePipe,
+    OpenBracket,
+    CloseBracket,
 }
 
 impl Symbol {
@@ -98,6 +100,8 @@ impl Symbol {
             Symbol::PercentEquals => "%=",
             Symbol::DoubleAmpersand => "&&",
             Symbol::DoublePipe => "||",
+            Symbol::OpenBracket => "[",
+            Symbol::CloseBracket => "]",
         }
     }
 }

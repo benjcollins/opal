@@ -3,7 +3,7 @@ use std::{
     marker::PhantomData,
     mem::transmute,
     ops::{ControlFlow, Neg},
-    ptr,
+    ptr, slice,
 };
 
 use crate::{
@@ -135,6 +135,10 @@ impl<'f> Value<'f> {
                 Fun::Compiled((self.0 as *const CompiledFun).as_ref().unwrap())
             }
         }
+    }
+    pub unsafe fn as_array(self) -> &'f [Value<'f>] {
+        let ptr = self.0 as *const u64;
+        unsafe { slice::from_raw_parts(ptr.add(1) as *const Value<'f>, ptr::read(ptr) as usize) }
     }
 }
 
@@ -299,6 +303,12 @@ impl<'f> VM<'f> {
             Op::RET => {
                 let src = self.read_value(instr.src1());
                 self.ret(src)
+            }
+            Op::ARRAY => {
+                let elements = &self.value_stack[self.value_stack_base + instr.args_start() as usize..]
+                    [..instr.args_count() as usize];
+                println!("{:?}", elements);
+                todo!()
             }
         }
     }

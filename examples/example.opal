@@ -1,5 +1,5 @@
 module main;
 
 fun main() {
-    let data: Int = 3;
+    let x = [1, 2, 3];
 }

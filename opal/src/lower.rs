@@ -253,7 +253,16 @@ impl<'f> Lowerer<'f> {
         self.bytecode.label(if_false);
     }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
+        self.enter_stack_frame();
         match expr {
+            TypedExpr::Array(elements) => {
+                let element_start = self.stack_top;
+                for element in elements {
+                    let element_reg = self.alloc_reg();
+                    self.lower_expr_dst(element, element_reg);
+                }
+                self.bytecode.instr().array(dst, element_start, elements.len() as u8);
+            }
             TypedExpr::Infix { left, right, op } => match *op {
                 TypedInfixOp::Arith(op, ty) => {
                     let src1 = self.lower_expr_val(left);
@@ -285,12 +294,11 @@ impl<'f> Lowerer<'f> {
                 self.exit_stack_frame();
             }
             _ => {
-                self.enter_stack_frame();
                 let src = self.lower_expr_val(expr);
                 self.bytecode.instr().mov(dst, src);
-                self.exit_stack_frame();
             }
         }
+        self.exit_stack_frame();
     }
     fn lower_stmt(&mut self, stmt: &TypedStmt) {
         match stmt {

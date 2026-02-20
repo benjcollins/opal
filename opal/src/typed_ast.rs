@@ -31,6 +31,7 @@ pub enum TypedExpr {
         name: Ident,
         args: Vec<TypedExpr>,
     },
+    Array(Vec<TypedExpr>),
     Var(Rc<TypedVar>),
     Infix {
         left: Box<TypedExpr>,

@@ -6,13 +6,14 @@ use crate::{
     typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Int,
     Float,
     Bool,
     Unit,
     Void,
+    Array(Box<Type>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,14 +104,14 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, Ty
         params.push(inferer.insert_var(var, ty));
     }
     let block = inferer.infer_block(&fun.block)?;
-    if !block.diverges && returns != Type::Unit {
+    if !block.diverges && inferer.returns != Type::Unit {
         return Err(TypeError("missing return"));
     }
     inferer.scope.exit_block();
     Ok(TypedFun {
         name: fun.name.clone(),
         params,
-        returns,
+        returns: inferer.returns,
         block,
     })
 }
@@ -122,6 +123,20 @@ impl<'e> Inferer<'e> {
                 let typed_expr = TypedExpr::Lit(*lit);
                 let ty = infer_lit(lit);
                 (typed_expr, ty)
+            }
+            Expr::Array(elements) => {
+                let mut typed_elements = vec![];
+                let mut array_ty = None;
+                for element in elements {
+                    let (typed_element, ty) = self.infer_expr(element)?;
+                    array_ty = match &mut array_ty {
+                        Some(array_ty) if *array_ty != ty => Err(TypeError("array elements must have the same type"))?,
+                        _ => Some(ty),
+                    };
+                    typed_elements.push(typed_element);
+                }
+                let typed_expr = TypedExpr::Array(typed_elements);
+                (typed_expr, array_ty.unwrap_or(Type::Void))
             }
             Expr::Call(name, args) => {
                 let fun_sig = self.env.get(name).ok_or(TypeError("undefined function"))?;
@@ -139,13 +154,13 @@ impl<'e> Inferer<'e> {
                     name: name.clone(),
                     args: typed_args,
                 };
-                (expr, fun_sig.returns)
+                (expr, fun_sig.returns.clone())
             }
             Expr::Paren(node) => self.infer_expr(node)?,
             Expr::Var(var) => {
                 let var = self.scope.get(var.ident()).unwrap();
                 let typed_expr = TypedExpr::Var(var.clone());
-                (typed_expr, var.ty)
+                (typed_expr, var.ty.clone())
             }
             Expr::Infix { left, op, right } => {
                 let (left_expr, left_ty) = self.infer_expr(left)?;

@@ -10,9 +10,9 @@ fn main() -> ExitCode {
     let heap = Heap::new();
     let mut runtime = Runtime::new(&heap);
 
-    runtime.register_native_fun(debug_int);
-    runtime.register_native_fun(debug_float);
-    runtime.register_native_fun(debug_bool);
+    runtime.register_native_fun(print_int);
+    runtime.register_native_fun(print_float);
+    runtime.register_native_fun(print_bool);
 
     let path = Path::new("../examples/example.opal");
     let source = fs::read_to_string(path).unwrap();
@@ -34,19 +34,19 @@ fn main() -> ExitCode {
 }
 
 #[opal_proc::fun]
-fn debug_int(a: i64) -> Result<(), RuntimeError> {
+fn print_int(a: i64) -> Result<(), RuntimeError> {
     println!("{}", a);
     Ok(())
 }
 
 #[opal_proc::fun]
-fn debug_float(value: f64) -> Result<(), RuntimeError> {
+fn print_float(value: f64) -> Result<(), RuntimeError> {
     println!("{}", value);
     Ok(())
 }
 
 #[opal_proc::fun]
-fn debug_bool(value: bool) -> Result<(), RuntimeError> {
+fn print_bool(value: bool) -> Result<(), RuntimeError> {
     println!("{}", value);
     Ok(())
 }

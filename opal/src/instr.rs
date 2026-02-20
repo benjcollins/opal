@@ -33,6 +33,8 @@ pub enum Op {
     FSLT,
     FSLE,
 
+    ARRAY,
+
     JMP,
 
     CALL,
@@ -75,6 +77,9 @@ impl Instr {
     pub fn args_start(self) -> u8 {
         self.0 as u8
     }
+    pub fn args_count(self) -> u8 {
+        (self.0 >> 8) as u8
+    }
     pub fn branch_offset(self) -> i8 {
         (self.0 >> 16) as i8
     }
@@ -107,6 +112,9 @@ impl Instr {
     }
     pub fn set_args_start(&mut self, args_start: u8) {
         self.0 |= args_start as u32;
+    }
+    pub fn set_args_count(&mut self, args_count: u8) {
+        self.0 |= (args_count as u32) << 8;
     }
 
     fn display_arith_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -177,6 +185,7 @@ impl fmt::Display for Instr {
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),
+            Op::ARRAY => write!(f, " {}, {}, {}", self.dst(), self.args_start(), self.args_count()),
         }?;
         write!(f, ";")
     }
