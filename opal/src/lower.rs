@@ -268,7 +268,14 @@ impl<'f> Lowerer<'f> {
                     let element_reg = self.alloc_reg();
                     self.lower_expr_dst(element, element_reg);
                 }
-                self.bytecode.instr().array(dst, element_start, elements.len() as u8);
+                self.bytecode
+                    .instr()
+                    .init_array(dst, element_start, elements.len() as u8);
+            }
+            TypedExpr::Index(array, index) => {
+                let array = self.lower_expr_val(array);
+                let index = self.lower_expr_val(index);
+                self.bytecode.instr().get_array(dst, array, index);
             }
             TypedExpr::Infix { left, right, op } => match *op {
                 TypedInfixOp::Arith(op, ty) => {

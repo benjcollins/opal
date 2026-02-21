@@ -20,10 +20,10 @@
 
 # IN DEV
 
-- Read element from array. HARD
 
 # DONE
 
+- Read element from array. HARD
 - Create arrays with list of elements. HARD
 - Diverge checks MEDIUM
 - Equality with booleans. EASY

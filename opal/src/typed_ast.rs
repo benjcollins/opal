@@ -38,6 +38,7 @@ pub enum TypedExpr {
         args: Vec<TypedExpr>,
     },
     Array(Vec<TypedExpr>),
+    Index(Box<TypedExpr>, Box<TypedExpr>),
     Var(TypedVar),
     Infix {
         left: Box<TypedExpr>,

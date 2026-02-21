@@ -184,7 +184,7 @@ impl<'f> VM<'f> {
                 let src = self.read_value(instr.src1());
                 self.ret(src)
             }
-            Op::ARRAY => {
+            Op::INIT_ARRAY => {
                 let elements = &self.value_stack[self.value_stack_base + instr.args_start() as usize..]
                     [..instr.args_count() as usize];
                 let array_object = self.heap.alloc_array(elements.len() as u64);
@@ -192,6 +192,14 @@ impl<'f> VM<'f> {
                     array_object.set(index as u64, element);
                 }
                 self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
+                self.ip += 1;
+                Ok(ControlFlow::Continue(()))
+            }
+            Op::GET_ARRAY => {
+                let array = self.read_value(instr.src1());
+                let array_object = unsafe { array.as_object() }.as_array().unwrap();
+                let index = self.read_value(instr.src2());
+                self.write_reg(instr.dst(), array_object.get(index.as_int() as u64));
                 self.ip += 1;
                 Ok(ControlFlow::Continue(()))
             }

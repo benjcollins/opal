@@ -132,17 +132,17 @@ impl<'e> Inferer<'e> {
             }
             Expr::Array(elements) => {
                 let mut typed_elements = vec![];
-                let mut array_ty = None;
+                let mut element_ty = None;
                 for element in elements {
                     let (typed_element, ty) = self.infer_expr(element)?;
-                    array_ty = match &mut array_ty {
+                    element_ty = match &mut element_ty {
                         Some(array_ty) if *array_ty != ty => Err(TypeError("array elements must have the same type"))?,
                         _ => Some(ty),
                     };
                     typed_elements.push(typed_element);
                 }
                 let typed_expr = TypedExpr::Array(typed_elements);
-                (typed_expr, array_ty.unwrap_or(Type::Void))
+                (typed_expr, Type::Array(Box::new(element_ty.unwrap_or(Type::Void))))
             }
             Expr::Call(fun, args) => {
                 let (typed_fun, fun_ty) = self.infer_expr(fun)?;
@@ -227,7 +227,18 @@ impl<'e> Inferer<'e> {
 
                 (typed_expr, ty)
             }
-            Expr::Index(_, _) => todo!(),
+            Expr::Index(array, index) => {
+                let (typed_array, array_ty) = self.infer_expr(array)?;
+                let Type::Array(element_ty) = array_ty else {
+                    return Err(TypeError("cannot index non array type"));
+                };
+                let (typed_index, index_ty) = self.infer_expr(index)?;
+                if index_ty != Type::Int {
+                    return Err(TypeError("index type must be an Int"));
+                }
+                let typed_expr = TypedExpr::Index(Box::new(typed_array), Box::new(typed_index));
+                (typed_expr, *element_ty)
+            }
         };
 
         Ok((typed_expr, ty))

@@ -33,7 +33,8 @@ pub enum Op {
     FSLT,
     FSLE,
 
-    ARRAY,
+    INIT_ARRAY,
+    GET_ARRAY,
 
     JMP,
 
@@ -185,7 +186,8 @@ impl fmt::Display for Instr {
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),
-            Op::ARRAY => write!(f, " {}, {}, {}", self.dst(), self.args_start(), self.args_count()),
+            Op::INIT_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.args_start(), self.args_count()),
+            Op::GET_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
         }?;
         write!(f, ";")
     }
