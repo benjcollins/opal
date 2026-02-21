@@ -14,7 +14,7 @@
 - Span information in AST nodes. MEDIUM
 - Unary ops. EASY
 - Break and continue statements. MEDIUM
-
+- Tree sitter grammar. HARD
 - Create arrays with default element and size. MEDIUM
 - Write element to array. HARD
 

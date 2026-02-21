@@ -9,11 +9,17 @@ use crate::{
 pub struct VarId(pub u32);
 
 #[derive(Debug, Clone)]
-pub struct TypedVar {
+pub struct LocalTypedVar {
     pub mutable: bool,
     pub ident: Ident,
     pub ty: Type,
     pub id: VarId,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypedVar {
+    Local(Rc<LocalTypedVar>),
+    Env(Ident),
 }
 
 #[derive(Debug, Clone)]
@@ -28,11 +34,11 @@ pub enum TypedInfixOp {
 pub enum TypedExpr {
     Lit(Lit),
     Call {
-        name: Ident,
+        fun: Box<TypedExpr>,
         args: Vec<TypedExpr>,
     },
     Array(Vec<TypedExpr>),
-    Var(Rc<TypedVar>),
+    Var(TypedVar),
     Infix {
         left: Box<TypedExpr>,
         right: Box<TypedExpr>,
@@ -43,18 +49,13 @@ pub enum TypedExpr {
 #[derive(Debug, Clone)]
 pub enum TypedStmt {
     Let {
-        var: Rc<TypedVar>,
+        var: Rc<LocalTypedVar>,
         expr: TypedExpr,
     },
     Assign {
-        var: Rc<TypedVar>,
-        expr: TypedExpr,
-    },
-    AssignArith {
-        var: Rc<TypedVar>,
-        ty: NumericType,
-        op: ArithOp,
-        expr: TypedExpr,
+        dst: TypedExpr,
+        op: Option<(ArithOp, NumericType)>,
+        src: TypedExpr,
     },
     Expr(TypedExpr),
     Return(TypedExpr),
@@ -88,7 +89,7 @@ pub struct TypedBlock {
 #[derive(Debug, Clone)]
 pub struct TypedFun {
     pub name: Ident,
-    pub params: Vec<Rc<TypedVar>>,
+    pub params: Vec<Rc<LocalTypedVar>>,
     pub returns: Type,
     pub block: TypedBlock,
 }

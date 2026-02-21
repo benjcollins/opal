@@ -23,7 +23,7 @@ impl NativeFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
             params: self.params.to_vec(),
-            returns: self.returns.clone(),
+            returns: Box::new(self.returns.clone()),
         }
     }
 }

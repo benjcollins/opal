@@ -82,6 +82,40 @@ fn line_column(source: &str, offset: usize) -> (u32, u32) {
     (line, column)
 }
 
+const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
+    (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 5),
+    (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 5),
+    (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 5),
+    //
+    (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 4),
+    (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 4),
+    //
+    (Symbol::DoubleEquals, InfixOp::Equality(EqualityOp::Equal), 3),
+    (Symbol::BangEquals, InfixOp::Equality(EqualityOp::NotEqual), 3),
+    (Symbol::Less, InfixOp::Comp(CompOp::Less), 3),
+    (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 3),
+    (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 3),
+    (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 3),
+    //
+    (Symbol::DoubleAmpersand, InfixOp::Logical(LogicalOp::And), 2),
+    (Symbol::DoublePipe, InfixOp::Logical(LogicalOp::Or), 1),
+];
+
+const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr) -> Result<Expr, Recovered>)] = &[
+    (Symbol::OpenParen, 6, |self_, expr| self_.parse_expr_call(expr)),
+    (Symbol::OpenBracket, 6, |self_, expr| self_.parse_expr_index(expr)),
+    //
+];
+
+const ASSIGN_OPS: &[(Option<ArithOp>, Symbol)] = &[
+    (None, Symbol::Equals),
+    (Some(ArithOp::Add), Symbol::PlusEquals),
+    (Some(ArithOp::Subtract), Symbol::MinusEquals),
+    (Some(ArithOp::Multiply), Symbol::StarEquals),
+    (Some(ArithOp::Divide), Symbol::SlashEquals),
+    (Some(ArithOp::Modulus), Symbol::PercentEquals),
+];
+
 impl<'s, 'p> Parser<'s, 'p> {
     pub fn new(source: &'s str, path: Option<&'p Path>) -> Parser<'s, 'p> {
         let mut lexer = Lexer::new(source);
@@ -185,41 +219,27 @@ impl<'s, 'p> Parser<'s, 'p> {
             return Ok(Expr::Lit(Lit::Bool(false)));
         }
         if let Some(ident) = self.consume(token::Ident) {
-            return self.parse_value_ident(Ident::new(ident));
+            return Ok(Expr::Var(VarUse(Ident::new(ident))));
         }
         Err(self.error())
     }
-    pub fn parse_value_ident(&mut self, ident: Ident) -> Result<Expr, Recovered> {
-        if self.advance(Symbol::OpenParen) {
-            let args = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
-            return Ok(Expr::Call(ident, args));
-        }
-        Ok(Expr::Var(VarUse(ident)))
+    pub fn parse_expr_call(&mut self, expr: Expr) -> Result<Expr, Recovered> {
+        let args = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
+        return Ok(Expr::Call(Box::new(expr), args));
+    }
+    pub fn parse_expr_index(&mut self, expr: Expr) -> Result<Expr, Recovered> {
+        let index = self.parse_expr(0)?;
+        self.expect(Symbol::CloseBracket)?;
+        return Ok(Expr::Index(Box::new(expr), Box::new(index)));
     }
     pub fn parse_expr(&mut self, prec: Prec) -> Result<Expr, Recovered> {
-        let left = self.parse_value()?;
-        self.parse_infix(left, prec)
-    }
-    pub fn parse_infix(&mut self, mut left: Expr, prec: Prec) -> Result<Expr, Recovered> {
-        const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
-            (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 5),
-            (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 5),
-            (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 5),
-            //
-            (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 4),
-            (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 4),
-            //
-            (Symbol::DoubleEquals, InfixOp::Equality(EqualityOp::Equal), 3),
-            (Symbol::BangEquals, InfixOp::Equality(EqualityOp::NotEqual), 3),
-            (Symbol::Less, InfixOp::Comp(CompOp::Less), 3),
-            (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 3),
-            (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 3),
-            (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 3),
-            //
-            (Symbol::DoubleAmpersand, InfixOp::Logical(LogicalOp::And), 2),
-            (Symbol::DoublePipe, InfixOp::Logical(LogicalOp::Or), 1),
-        ];
+        let mut left = self.parse_value()?;
         'outer: loop {
+            for (symbol, op_prec, parse_fn) in POSTFIX_OPS {
+                if *op_prec > prec && self.advance(*symbol) {
+                    left = parse_fn(self, left)?;
+                }
+            }
             for (symbol, infix_op, op_prec) in INFIX_OPS {
                 if *op_prec > prec && self.advance(*symbol) {
                     let right = self.parse_expr(*op_prec)?;
@@ -279,36 +299,6 @@ impl<'s, 'p> Parser<'s, 'p> {
             };
             return Ok(Stmt::Return(expr));
         }
-        if let Some(ident) = self.consume(token::Ident) {
-            if self.advance(Symbol::Equals) {
-                let var = VarUse(Ident::new(ident));
-                let expr = self.parse_expr(0)?;
-                self.expect(Symbol::Semicolon)?;
-                return Ok(Stmt::Assign { var, expr });
-            };
-
-            const ARITH_ASSIGN_OPS: &[(ArithOp, Symbol)] = &[
-                (ArithOp::Add, Symbol::PlusEquals),
-                (ArithOp::Subtract, Symbol::MinusEquals),
-                (ArithOp::Multiply, Symbol::StarEquals),
-                (ArithOp::Divide, Symbol::SlashEquals),
-                (ArithOp::Modulus, Symbol::PercentEquals),
-            ];
-
-            for &(op, symbol) in ARITH_ASSIGN_OPS {
-                if self.advance(symbol) {
-                    let var = VarUse(Ident::new(ident));
-                    let expr = self.parse_expr(0)?;
-                    self.expect(Symbol::Semicolon)?;
-                    return Ok(Stmt::AssignArith { var, op, expr });
-                }
-            }
-
-            let left = self.parse_value_ident(Ident::new(ident))?;
-            let expr = self.parse_infix(left, 0)?;
-            self.expect(Symbol::Semicolon)?;
-            return Ok(Stmt::Expr(expr));
-        }
         if self.advance(Keyword::If) {
             return Ok(Stmt::If(self.parse_if()?));
         }
@@ -319,9 +309,17 @@ impl<'s, 'p> Parser<'s, 'p> {
             let block = self.parse_block()?;
             return Ok(Stmt::While { cond, block });
         }
+
         let expr = self.parse_expr(0)?;
+        for &(op, symbol) in ASSIGN_OPS {
+            if self.advance(symbol) {
+                let src = self.parse_expr(0)?;
+                self.expect(Symbol::Semicolon)?;
+                return Ok(Stmt::Assign { op, dst: expr, src });
+            }
+        }
         self.expect(Symbol::Semicolon)?;
-        Ok(Stmt::Expr(expr))
+        return Ok(Stmt::Expr(expr));
     }
     pub fn parse_block(&mut self) -> Result<Block, Recovered> {
         self.expect(Symbol::OpenBrace)?;

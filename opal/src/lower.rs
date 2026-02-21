@@ -5,7 +5,7 @@ use crate::{
     bytecode::BytecodeBuffer,
     infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
-    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, VarId},
+    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
     value::Value,
 };
 
@@ -96,7 +96,14 @@ impl<'f> Lowerer<'f> {
                 };
                 Val::Cst(cst)
             }
-            TypedExpr::Var(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
+            TypedExpr::Var(var) => match var {
+                TypedVar::Local(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
+                TypedVar::Env(name) => {
+                    let fun = self.fresh_const();
+                    self.fun_ptrs.push((name.clone(), fun.0));
+                    Val::Cst(fun)
+                }
+            },
             _ => {
                 let dst = self.alloc_reg();
                 self.lower_expr_dst(expr, dst);
@@ -281,16 +288,15 @@ impl<'f> Lowerer<'f> {
                 }
                 TypedInfixOp::Logical(op) => self.lower_infix_logical(op, dst, left, right),
             },
-            TypedExpr::Call { name, args } => {
-                let fun = self.fresh_const();
-                self.fun_ptrs.push((name.clone(), fun.0));
+            TypedExpr::Call { fun, args } => {
+                let fun = self.lower_expr_val(fun);
                 let arg_start = self.stack_top;
                 self.enter_stack_frame();
                 for arg in args {
                     let arg_reg = self.alloc_reg();
                     self.lower_expr_dst(arg, arg_reg);
                 }
-                self.bytecode.instr().call(dst, Val::Cst(fun), arg_start);
+                self.bytecode.instr().call(dst, fun, arg_start);
                 self.exit_stack_frame();
             }
             _ => {
@@ -300,6 +306,22 @@ impl<'f> Lowerer<'f> {
         }
         self.exit_stack_frame();
     }
+    fn lower_assign(&mut self, dst: &TypedExpr, op: Option<(ArithOp, NumericType)>, src: &TypedExpr) {
+        match dst {
+            TypedExpr::Var(var) => {
+                let TypedVar::Local(var) = var else { panic!() };
+                let dst = *self.vars.get(&var.id).unwrap();
+                match op {
+                    Some((op, ty)) => {
+                        let src = self.lower_expr_val(src);
+                        self.lower_infix_arith(op, ty, dst, Val::Reg(dst), src);
+                    }
+                    None => self.lower_expr_dst(src, dst),
+                }
+            }
+            _ => panic!(),
+        }
+    }
     fn lower_stmt(&mut self, stmt: &TypedStmt) {
         match stmt {
             TypedStmt::Let { var, expr } => {
@@ -307,14 +329,8 @@ impl<'f> Lowerer<'f> {
                 self.vars.insert(var.id, var_reg);
                 self.lower_expr_dst(expr, var_reg);
             }
-            TypedStmt::Assign { var, expr } => {
-                let var_reg = self.vars.get(&var.id).unwrap();
-                self.lower_expr_dst(expr, *var_reg);
-            }
-            TypedStmt::AssignArith { var, ty, op, expr } => {
-                let var_reg = *self.vars.get(&var.id).unwrap();
-                let expr_val = self.lower_expr_val(expr);
-                self.lower_infix_arith(*op, *ty, var_reg, Val::Reg(var_reg), expr_val);
+            TypedStmt::Assign { dst, op, src } => {
+                self.lower_assign(dst, *op, src);
             }
             TypedStmt::Expr(expr) => {
                 self.enter_stack_frame();

@@ -35,10 +35,11 @@ pub enum Lit {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Lit(Lit),
-    Call(Ident, Vec<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
     Paren(Box<Expr>),
     Var(VarUse),
     Array(Vec<Expr>),
+    Index(Box<Expr>, Box<Expr>),
     Infix {
         left: Box<Expr>,
         op: InfixOp,
@@ -86,8 +87,7 @@ pub enum LogicalOp {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Let { var: VarDef, ty: Option<Type>, expr: Expr },
-    Assign { var: VarUse, expr: Expr },
-    AssignArith { var: VarUse, op: ArithOp, expr: Expr },
+    Assign { dst: Expr, op: Option<ArithOp>, src: Expr },
     Return(Option<Expr>),
     Expr(Expr),
     If(If),

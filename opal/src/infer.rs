@@ -3,7 +3,9 @@ use std::{collections::HashMap, rc::Rc};
 use crate::{
     ast::{self, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
     scope::Scope,
-    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
+    typed_ast::{
+        LocalTypedVar, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +16,7 @@ pub enum Type {
     Unit,
     Void,
     Array(Box<Type>),
+    Fun(FunSig),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +46,7 @@ impl Type {
 
 pub struct Inferer<'e> {
     next_var_id: u32,
-    scope: Scope<Ident, Rc<TypedVar>>,
+    scope: Scope<Ident, Rc<LocalTypedVar>>,
     env: &'e HashMap<Ident, FunSig>,
     returns: Type,
 }
@@ -68,15 +71,18 @@ pub fn resolve_type(ty: &ast::Type) -> Result<Type, TypeError> {
     })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunSig {
     pub params: Vec<Type>,
-    pub returns: Type,
+    pub returns: Box<Type>,
 }
 
 impl FunSig {
     pub fn new(params: Vec<Type>, returns: Type) -> FunSig {
-        FunSig { params, returns }
+        FunSig {
+            params,
+            returns: Box::new(returns),
+        }
     }
 }
 
@@ -138,8 +144,11 @@ impl<'e> Inferer<'e> {
                 let typed_expr = TypedExpr::Array(typed_elements);
                 (typed_expr, array_ty.unwrap_or(Type::Void))
             }
-            Expr::Call(name, args) => {
-                let fun_sig = self.env.get(name).ok_or(TypeError("undefined function"))?;
+            Expr::Call(fun, args) => {
+                let (typed_fun, fun_ty) = self.infer_expr(fun)?;
+                let Type::Fun(sig) = fun_ty else {
+                    return Err(TypeError("trying to call non function type"));
+                };
                 let mut typed_args = vec![];
                 let mut arg_tys = vec![];
                 for arg in args {
@@ -147,20 +156,25 @@ impl<'e> Inferer<'e> {
                     typed_args.push(typed_arg);
                     arg_tys.push(arg_ty);
                 }
-                if arg_tys != fun_sig.params {
+                if arg_tys != sig.params {
                     return Err(TypeError("incorrect function arguments"));
                 }
                 let expr = TypedExpr::Call {
-                    name: name.clone(),
+                    fun: Box::new(typed_fun),
                     args: typed_args,
                 };
-                (expr, fun_sig.returns.clone())
+                (expr, sig.returns.as_ref().clone())
             }
             Expr::Paren(node) => self.infer_expr(node)?,
             Expr::Var(var) => {
-                let var = self.scope.get(var.ident()).unwrap();
-                let typed_expr = TypedExpr::Var(var.clone());
-                (typed_expr, var.ty.clone())
+                let (typed_var, ty) = if let Some(var) = self.scope.get(var.ident()) {
+                    (TypedVar::Local(var.clone()), var.ty.clone())
+                } else if let Some(sig) = self.env.get(var.ident()) {
+                    (TypedVar::Env(var.ident().clone()), Type::Fun(sig.clone()))
+                } else {
+                    return Err(TypeError("undefined varaible"));
+                };
+                (TypedExpr::Var(typed_var), ty)
             }
             Expr::Infix { left, op, right } => {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
@@ -213,15 +227,16 @@ impl<'e> Inferer<'e> {
 
                 (typed_expr, ty)
             }
+            Expr::Index(_, _) => todo!(),
         };
 
         Ok((typed_expr, ty))
     }
 
-    fn insert_var(&mut self, var: &VarDef, ty: Type) -> Rc<TypedVar> {
+    fn insert_var(&mut self, var: &VarDef, ty: Type) -> Rc<LocalTypedVar> {
         let id = VarId(self.next_var_id);
         self.next_var_id += 1;
-        let var = Rc::new(TypedVar {
+        let var = Rc::new(LocalTypedVar {
             mutable: var.mutable,
             ident: var.ident.clone(),
             ty,
@@ -243,34 +258,24 @@ impl<'e> Inferer<'e> {
                 let var = self.insert_var(var, expr_ty);
                 (TypedStmt::Let { var, expr }, false)
             }
-            Stmt::Assign { var, expr } => {
-                let var = self.scope.get(var.ident()).unwrap().clone();
-                let (expr, ty) = self.infer_expr(expr)?;
-                if ty != var.ty {
+            Stmt::Assign { dst, op, src } => {
+                let (dst, dst_ty) = self.infer_expr(dst)?;
+                let (src, src_ty) = self.infer_expr(src)?;
+                if dst_ty != src_ty {
                     return Err(TypeError("assignment type mismatch"));
                 }
-                (TypedStmt::Assign { var, expr }, false)
-            }
-            Stmt::AssignArith { var, op, expr } => {
-                let var = self.scope.get(var.ident()).unwrap().clone();
-                let (expr, expr_ty) = self.infer_expr(expr)?;
-                let var_ty = var
-                    .ty
-                    .as_numeric_type()
-                    .ok_or(TypeError("assign arith type mismatch"))?;
-                let expr_ty = expr_ty
-                    .as_numeric_type()
-                    .ok_or(TypeError("assign arith type mismatch"))?;
-                if expr_ty != var_ty {
-                    return Err(TypeError("assign arith type mismatch"));
-                }
-                let stmt = TypedStmt::AssignArith {
-                    var,
-                    ty: var_ty,
-                    op: *op,
-                    expr,
+                let op = if let Some(op) = *op {
+                    let ty = dst_ty
+                        .as_numeric_type()
+                        .ok_or(TypeError("assign arith type mismatch"))?;
+                    src_ty
+                        .as_numeric_type()
+                        .ok_or(TypeError("assign arith type mismatch"))?;
+                    Some((op, ty))
+                } else {
+                    None
                 };
-                (stmt, false)
+                (TypedStmt::Assign { dst, op, src }, false)
             }
             Stmt::Expr(expr) => {
                 let (expr, ty) = self.infer_expr(expr)?;
