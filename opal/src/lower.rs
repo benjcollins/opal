@@ -6,7 +6,7 @@ use crate::{
     infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
     typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, VarId},
-    vm::Value,
+    value::Value,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

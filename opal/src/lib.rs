@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod bytecode;
+pub mod heap;
 pub mod infer;
 pub mod instr;
 pub mod intern;
@@ -10,4 +11,5 @@ pub mod runtime;
 pub mod scope;
 pub mod token;
 pub mod typed_ast;
+pub mod value;
 pub mod vm;

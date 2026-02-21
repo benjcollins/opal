@@ -9,17 +9,22 @@
 - Flat memory structure for functions. MEDIUM
 - Module scoping. MEDIUM
 - Snapshot testing. MEDIUM
-- Arrays. HARD
 - String interner should probably be syncable. HARD
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
 - Unary ops. EASY
 - Break and continue statements. MEDIUM
 
+- Create arrays with default element and size. MEDIUM
+- Write element to array. HARD
+
 # IN DEV
 
+- Read element from array. HARD
 
 # DONE
+
+- Create arrays with list of elements. HARD
 - Diverge checks MEDIUM
 - Equality with booleans. EASY
 - Generate dissasembled bytecode for debugging

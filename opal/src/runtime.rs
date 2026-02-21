@@ -4,9 +4,11 @@ use elsa::FrozenVec;
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
+    heap::ObjectHeap,
     infer::{FunSig, Type, infer_fun, resolve_type},
     lower::{CompiledFun, lower_fun},
-    vm::{Fun, RuntimeError, VM, Value},
+    value::Value,
+    vm::{Fun, RuntimeError, VM},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +33,8 @@ pub struct Heap<'h> {
 }
 
 pub struct Runtime<'h> {
-    heap: &'h Heap<'h>,
+    fun_heap: &'h Heap<'h>,
+    object_heap: &'h ObjectHeap,
     fun_sigs: HashMap<Ident, FunSig>,
     pub funs: HashMap<Ident, Fun<'h>>,
 }
@@ -49,9 +52,10 @@ impl<'h> Heap<'h> {
 }
 
 impl<'h> Runtime<'h> {
-    pub fn new(heap: &'h Heap<'h>) -> Runtime<'h> {
+    pub fn new(heap: &'h Heap<'h>, object_heap: &'h ObjectHeap) -> Runtime<'h> {
         Runtime {
-            heap,
+            fun_heap: heap,
+            object_heap,
             fun_sigs: HashMap::new(),
             funs: HashMap::new(),
         }
@@ -86,7 +90,7 @@ impl<'h> Runtime<'h> {
                 ModuleItem::Fun(fun) => {
                     let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
                     let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
-                    let fun_ref = self.heap.funs.push_get(Box::new(compiled_fun));
+                    let fun_ref = self.fun_heap.funs.push_get(Box::new(compiled_fun));
                     funs_to_patch.push((fun_ref, fun_ptrs));
                     self.funs.insert(fun.name.clone(), Fun::Compiled(fun_ref));
                 }
@@ -113,6 +117,7 @@ impl<'h> Runtime<'h> {
             fun,
             value_stack_base: 0,
             ip: 0,
+            heap: self.object_heap,
         };
 
         let mut cf = ControlFlow::Continue(());

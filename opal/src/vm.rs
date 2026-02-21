@@ -1,15 +1,10 @@
-use std::{
-    convert::Infallible,
-    marker::PhantomData,
-    mem::transmute,
-    ops::{ControlFlow, Neg},
-    ptr, slice,
-};
+use std::ops::{ControlFlow, Neg};
 
 use crate::{
-    infer::Type,
+    heap::ObjectHeap,
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
+    value::Value,
 };
 
 pub struct Call<'f> {
@@ -24,144 +19,13 @@ pub struct VM<'f> {
     pub fun: &'f CompiledFun<'f>,
     pub value_stack_base: usize,
     pub ip: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Value<'f>(u64, PhantomData<&'f ()>);
-
-pub trait ValueConv {
-    const TYPE: Type;
-
-    fn into_value<'h>(self) -> Value<'h>;
-    fn from_value<'h>(value: Value<'h>) -> Self;
-}
-
-pub trait NativeFunResult {
-    type Output: ValueConv;
-    fn map<'h>(self) -> Result<Value<'h>, RuntimeError>;
-}
-
-impl<T: ValueConv> NativeFunResult for Result<T, RuntimeError> {
-    type Output = T;
-    fn map<'h>(self) -> Result<Value<'h>, RuntimeError> {
-        self.map(|t| t.into_value())
-    }
-}
-
-impl ValueConv for i64 {
-    const TYPE: Type = Type::Int;
-    fn into_value<'h>(self) -> Value<'h> {
-        Value::from_int(self)
-    }
-    fn from_value<'h>(value: Value<'h>) -> Self {
-        value.as_int()
-    }
-}
-
-impl ValueConv for bool {
-    const TYPE: Type = Type::Bool;
-    fn into_value<'h>(self) -> Value<'h> {
-        Value::from_bool(self)
-    }
-    fn from_value<'h>(value: Value<'h>) -> Self {
-        value.as_bool()
-    }
-}
-
-impl ValueConv for f64 {
-    const TYPE: Type = Type::Float;
-    fn into_value<'h>(self) -> Value<'h> {
-        Value::from_float(self)
-    }
-    fn from_value<'h>(value: Value<'h>) -> Self {
-        value.as_float()
-    }
-}
-
-impl ValueConv for () {
-    const TYPE: Type = Type::Unit;
-    fn into_value<'h>(self) -> Value<'h> {
-        Value::from_unit(())
-    }
-    fn from_value<'h>(_: Value<'h>) -> Self {}
-}
-
-impl ValueConv for Infallible {
-    const TYPE: Type = Type::Void;
-
-    fn into_value<'h>(self) -> Value<'h> {
-        match self {}
-    }
-
-    fn from_value<'h>(_: Value<'h>) -> Self {
-        unreachable!()
-    }
-}
-
-impl<'f> Value<'f> {
-    pub fn from_unit(_: ()) -> Value<'f> {
-        Value(0, PhantomData)
-    }
-    pub fn from_int(value: i64) -> Value<'f> {
-        Value(value as u64, PhantomData)
-    }
-    pub fn from_float(value: f64) -> Value<'f> {
-        Value(value.to_bits(), PhantomData)
-    }
-    pub fn from_bool(value: bool) -> Value<'f> {
-        Value(value as u64, PhantomData)
-    }
-    pub fn from_fun(fun: Fun) -> Value<'f> {
-        match fun {
-            Fun::Native(fun) => Value(fun as usize as u64 | 1 << 63, PhantomData),
-            Fun::Compiled(fun) => Value(ptr::from_ref(fun) as u64, PhantomData),
-        }
-    }
-    pub fn as_float(self) -> f64 {
-        f64::from_bits(self.0)
-    }
-    pub fn as_int(self) -> i64 {
-        self.0 as i64
-    }
-    pub fn as_bool(self) -> bool {
-        self.0 != 0
-    }
-    pub unsafe fn as_fun(self) -> Fun<'f> {
-        unsafe {
-            if self.0 >> 63 == 1 {
-                let ptr = self.0 & !(1 << 63);
-                Fun::Native(transmute(ptr as *const ()))
-            } else {
-                Fun::Compiled((self.0 as *const CompiledFun).as_ref().unwrap())
-            }
-        }
-    }
-    pub unsafe fn as_array(self) -> &'f [Value<'f>] {
-        let ptr = self.0 as *const u64;
-        unsafe { slice::from_raw_parts(ptr.add(1) as *const Value<'f>, ptr::read(ptr) as usize) }
-    }
+    pub heap: &'f ObjectHeap,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Fun<'f> {
     Native(fn(&[Value<'f>]) -> Result<Value<'f>, RuntimeError>),
     Compiled(&'f CompiledFun<'f>),
-}
-
-fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
-    move |a, b| Value::from_int(op(a.as_int(), b.as_int()))
-}
-
-fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
-    move |a, b| Value::from_float(op(a.as_float(), b.as_float()))
-}
-
-fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
-    move |a, b| cmp(a.as_int(), b.as_int())
-}
-
-fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
-    move |a, b| cmp(a.as_float(), b.as_float())
 }
 
 #[derive(Debug)]
@@ -237,6 +101,22 @@ impl<'f> VM<'f> {
     pub fn execute_next_instr(&mut self) -> Result<ControlFlow<(), ()>, RuntimeError> {
         let instr = self.fun.bytecode[self.ip];
 
+        fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
+            move |a, b| Value::from_int(op(a.as_int(), b.as_int()))
+        }
+
+        fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
+            move |a, b| Value::from_float(op(a.as_float(), b.as_float()))
+        }
+
+        fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
+            move |a, b| cmp(a.as_int(), b.as_int())
+        }
+
+        fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
+            move |a, b| cmp(a.as_float(), b.as_float())
+        }
+
         match instr.op() {
             Op::MOV => {
                 let src1 = self.read_value(instr.src1());
@@ -307,8 +187,13 @@ impl<'f> VM<'f> {
             Op::ARRAY => {
                 let elements = &self.value_stack[self.value_stack_base + instr.args_start() as usize..]
                     [..instr.args_count() as usize];
-                println!("{:?}", elements);
-                todo!()
+                let array_object = self.heap.alloc_array(elements.len() as u64);
+                for (index, element) in elements.iter().copied().enumerate() {
+                    array_object.set(index as u64, element);
+                }
+                self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
+                self.ip += 1;
+                Ok(ControlFlow::Continue(()))
             }
         }
     }

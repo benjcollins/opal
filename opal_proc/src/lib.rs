@@ -33,7 +33,7 @@ fn inner(item: TokenStream2) -> TokenStream2 {
     let output = quote! {
         #[allow(non_upper_case_globals)]
         const #fn_name: opal::runtime::NativeFun = {
-            use opal::vm::{Value, ValueConv, NativeFunResult};
+            use opal::value::{Value, ValueConv, NativeFunResult};
             use opal::infer::Type;
             use opal::runtime::NativeFun;
 

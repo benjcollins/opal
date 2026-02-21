@@ -2,13 +2,15 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use opal::heap::ObjectHeap;
 use opal::parser::parse_module;
 use opal::runtime::{Heap, Runtime};
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
     let heap = Heap::new();
-    let mut runtime = Runtime::new(&heap);
+    let object_heap = ObjectHeap::new();
+    let mut runtime = Runtime::new(&heap, &object_heap);
 
     runtime.register_native_fun(print_int);
     runtime.register_native_fun(print_float);

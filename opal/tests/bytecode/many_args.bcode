@@ -14,3 +14,4 @@ test_many_args:
   MOV r(3), c(4);
   CALL r(0), c(0), 1;
   RET c(5);
+

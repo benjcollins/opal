@@ -1,6 +1,7 @@
 use libtest_mimic::{Arguments, Failed, Trial};
 use opal::{
     ast::ModuleItem,
+    heap::ObjectHeap,
     parser::parse_module,
     runtime::{Heap, Runtime},
     vm::{Fun, RuntimeError},
@@ -42,7 +43,8 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     let module = module.unwrap();
 
     let heap = Heap::new();
-    let mut runtime = Runtime::new(&heap);
+    let object_heap = ObjectHeap::new();
+    let mut runtime = Runtime::new(&heap, &object_heap);
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print_float);
     runtime.register_native_fun(print_int);
