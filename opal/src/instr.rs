@@ -35,6 +35,7 @@ pub enum Op {
 
     INIT_ARRAY,
     GET_ARRAY,
+    SET_ARRAY,
 
     JMP,
 
@@ -117,16 +118,6 @@ impl Instr {
     pub fn set_args_count(&mut self, args_count: u8) {
         self.0 |= (args_count as u32) << 8;
     }
-
-    fn display_arith_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
-    }
-    fn display_branch_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
-    }
-    fn display_set_instr(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,14 +171,18 @@ impl fmt::Display for Instr {
             | Op::FSUB
             | Op::FMUL
             | Op::FDIV
-            | Op::FMOD => self.display_arith_instr(f),
-            Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => self.display_branch_instr(f),
-            Op::SEQ | Op::SNE | Op::ISLT | Op::ISLE | Op::FSLT | Op::FSLE => self.display_set_instr(f),
+            | Op::FMOD => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => {
+                write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
+            }
+            Op::SEQ | Op::SNE | Op::ISLT | Op::ISLE | Op::FSLT | Op::FSLE => {
+                write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
+            }
             Op::JMP => write!(f, " {}", self.jump_offset()),
             Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::RET => write!(f, " {}", self.src1()),
             Op::INIT_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.args_start(), self.args_count()),
-            Op::GET_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Op::GET_ARRAY | Op::SET_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
         }?;
         write!(f, ";")
     }

@@ -16,13 +16,16 @@
 - Break and continue statements. MEDIUM
 - Tree sitter grammar. HARD
 - Create arrays with default element and size. MEDIUM
-- Write element to array. HARD
+- Garbage collection
+- Use strict provenance API
+- Length of array as built in operation
 
 # IN DEV
 
 
 # DONE
 
+- Write element to array. HARD
 - Use arrays in native functions
 - Read element from array. HARD
 - Create arrays with list of elements. HARD

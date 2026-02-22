@@ -42,11 +42,13 @@ pub enum ControlFlow {
 impl<'f> VM<'f> {
     fn read_value(&self, val: Val) -> Value<'f> {
         match val {
-            Val::Reg(reg) => self.value_stack[self.value_stack_base + reg.0 as usize],
+            Val::Reg(reg) => self.read_reg(reg),
             Val::Cst(cst) => self.fun.consts[cst.0 as usize].get(),
         }
     }
-
+    fn read_reg(&self, reg: Reg) -> Value<'f> {
+        self.value_stack[self.value_stack_base + reg.0 as usize]
+    }
     fn write_reg(&mut self, reg: Reg, val: Value<'f>) {
         self.value_stack[self.value_stack_base + reg.0 as usize] = val;
     }
@@ -208,6 +210,15 @@ impl<'f> VM<'f> {
                 let array_object = unsafe { array.as_object() }.as_array().unwrap();
                 let index = self.read_value(instr.src2());
                 self.write_reg(instr.dst(), array_object.get(index.as_int() as u64));
+                self.ip += 1;
+                Ok(ControlFlow::Continue)
+            }
+            Op::SET_ARRAY => {
+                let array = self.read_reg(instr.dst());
+                let array_object = unsafe { array.as_object() }.as_array().unwrap();
+                let value = self.read_value(instr.src1());
+                let index = self.read_value(instr.src2());
+                array_object.set(index.as_int() as u64, value);
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }

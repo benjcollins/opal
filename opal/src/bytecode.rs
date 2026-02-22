@@ -156,6 +156,13 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.instr.set_src2(index);
     }
 
+    pub fn set_array(mut self, array: Reg, value: Val, index: Val) {
+        self.instr.set_op(Op::SET_ARRAY);
+        self.instr.set_dst(array);
+        self.instr.set_src1(value);
+        self.instr.set_src2(index);
+    }
+
     define_arith_instr!(iadd, IADD);
     define_arith_instr!(isub, ISUB);
     define_arith_instr!(imul, IMUL);

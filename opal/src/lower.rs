@@ -326,6 +326,21 @@ impl<'f> Lowerer<'f> {
                     None => self.lower_expr_dst(src, dst),
                 }
             }
+            TypedExpr::Index(array, index) => {
+                self.enter_stack_frame();
+                let array = match self.lower_expr_val(array) {
+                    Val::Reg(reg) => reg,
+                    Val::Cst(src) => {
+                        let dst = self.alloc_reg();
+                        self.bytecode.instr().mov(dst, Val::Cst(src));
+                        dst
+                    }
+                };
+                let index = self.lower_expr_val(index);
+                let value = self.lower_expr_val(src);
+                self.bytecode.instr().set_array(array, value, index);
+                self.exit_stack_frame();
+            }
             _ => panic!(),
         }
     }
