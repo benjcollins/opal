@@ -6,6 +6,7 @@ use crate::{
     heap::ObjectHeap,
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
+    runtime::NativeFunSig,
     value::Value,
 };
 
@@ -26,7 +27,7 @@ pub struct VM<'f> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Fun<'f> {
-    Native(fn(&[Value<'f>]) -> Result<Value<'f>, RuntimeError>),
+    Native(NativeFunSig),
     Compiled(&'f CompiledFun<'f>),
 }
 

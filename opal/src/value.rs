@@ -3,12 +3,13 @@ use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 use crate::{
     heap::{ArrayObject, HeapObject, ObjectHeader},
     lower::CompiledFun,
+    runtime::NativeFunSig,
     ty::BorrowedType,
     vm::{Fun, RuntimeError},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Value<'f>(u64, PhantomData<&'f ()>);
+pub struct Value<'f>(*mut (), PhantomData<&'f ()>);
 
 pub struct Array<'h, T> {
     object: ArrayObject<'h>,
@@ -101,42 +102,66 @@ impl<'h> ValueConv<'h> for Infallible {
     }
 }
 
+#[cfg(target_pointer_width = "64")]
+type Int = i64;
+#[cfg(target_pointer_width = "32")]
+type Int = i32;
+
+#[cfg(target_pointer_width = "64")]
+type UInt = u64;
+#[cfg(target_pointer_width = "32")]
+type UInt = u32;
+
+#[cfg(target_pointer_width = "64")]
+type Float = f64;
+#[cfg(target_pointer_width = "32")]
+type Float = f32;
+
+const NATIVE_FUN_BIT: usize = 1;
+
 impl<'f> Value<'f> {
+    fn new(ptr: *mut ()) -> Value<'f> {
+        Value(ptr, PhantomData)
+    }
     pub fn from_unit(_: ()) -> Value<'f> {
-        Value(0, PhantomData)
+        Value::new(ptr::null_mut())
     }
-    pub fn from_int(value: i64) -> Value<'f> {
-        Value(value as u64, PhantomData)
+    pub fn from_int(value: Int) -> Value<'f> {
+        Value::new(ptr::without_provenance_mut(value as usize))
     }
-    pub fn from_float(value: f64) -> Value<'f> {
-        Value(value.to_bits(), PhantomData)
+    pub fn from_float(value: Float) -> Value<'f> {
+        Value::new(ptr::without_provenance_mut(value.to_bits() as usize))
     }
     pub fn from_bool(value: bool) -> Value<'f> {
-        Value(value as u64, PhantomData)
+        Value::new(ptr::without_provenance_mut(value as usize))
     }
     pub fn from_fun(fun: Fun) -> Value<'f> {
         match fun {
-            Fun::Native(fun) => Value(fun as usize as u64 | 1 << 63, PhantomData),
-            Fun::Compiled(fun) => Value(ptr::from_ref(fun) as u64, PhantomData),
+            Fun::Native(fun) => {
+                println!("{:b}", (fun as *mut ()).addr());
+                Value::new((fun as *mut ()).map_addr(|addr| addr | NATIVE_FUN_BIT))
+            }
+            Fun::Compiled(fun) => Value::new(ptr::from_ref(fun) as *mut ()),
         }
     }
     pub fn from_object(object: HeapObject<'f>) -> Value<'f> {
-        Value(object.ptr.addr() as u64, PhantomData)
+        Value::new(object.ptr as *mut ())
     }
-    pub fn as_float(self) -> f64 {
-        f64::from_bits(self.0)
+    pub fn as_float(self) -> Float {
+        Float::from_bits(self.0.addr() as UInt)
     }
-    pub fn as_int(self) -> i64 {
-        self.0 as i64
+    pub fn as_int(self) -> Int {
+        self.0.addr() as Int
     }
     pub fn as_bool(self) -> bool {
-        self.0 != 0
+        self.0.addr() != 0
     }
     pub unsafe fn as_fun(self) -> Fun<'f> {
         unsafe {
-            if self.0 >> 63 == 1 {
-                let ptr = self.0 & !(1 << 63);
-                Fun::Native(transmute(ptr as *const ()))
+            if self.0.addr() & NATIVE_FUN_BIT != 0 {
+                let ptr = self.0.map_addr(|addr| addr & !NATIVE_FUN_BIT);
+                println!("{:b} {:b}", self.0.addr(), ptr.addr());
+                Fun::Native(*(ptr as *mut NativeFunSig))
             } else {
                 Fun::Compiled((self.0 as *const CompiledFun).as_ref().unwrap())
             }

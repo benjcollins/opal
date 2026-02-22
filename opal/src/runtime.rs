@@ -12,12 +12,14 @@ use crate::{
     vm::{ControlFlow, Fun, RuntimeError, VM},
 };
 
+pub type NativeFunSig = for<'h> fn(&[Value<'h>]) -> Result<Value<'h>, RuntimeError>;
+
 #[derive(Debug, Clone, Copy)]
 pub struct NativeFun {
     pub name: &'static str,
     pub params: &'static [BorrowedType<'static>],
     pub returns: BorrowedType<'static>,
-    pub fun: for<'h> fn(&[Value<'h>]) -> Result<Value<'h>, RuntimeError>,
+    pub fun: NativeFunSig,
 }
 
 impl NativeFun {
