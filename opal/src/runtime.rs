@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::ControlFlow};
+use std::collections::HashMap;
 
 use elsa::FrozenVec;
 
@@ -8,7 +8,7 @@ use crate::{
     infer::{FunSig, Type, infer_fun, resolve_type},
     lower::{CompiledFun, lower_fun},
     value::Value,
-    vm::{Fun, RuntimeError, VM},
+    vm::{ControlFlow, Fun, RuntimeError, VM},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -120,7 +120,7 @@ impl<'h> Runtime<'h> {
             heap: self.object_heap,
         };
 
-        let mut cf = ControlFlow::Continue(());
+        let mut cf = ControlFlow::Continue;
         while cf.is_continue() {
             cf = vm.execute_next_instr()?;
         }

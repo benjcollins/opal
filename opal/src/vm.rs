@@ -1,4 +1,6 @@
-use std::ops::{ControlFlow, Neg};
+use std::ops::Neg;
+
+use strum::EnumIs;
 
 use crate::{
     heap::ObjectHeap,
@@ -31,6 +33,12 @@ pub enum Fun<'f> {
 #[derive(Debug)]
 pub struct RuntimeError;
 
+#[derive(EnumIs)]
+pub enum ControlFlow {
+    Break,
+    Continue,
+}
+
 impl<'f> VM<'f> {
     fn read_value(&self, val: Val) -> Value<'f> {
         match val {
@@ -47,19 +55,19 @@ impl<'f> VM<'f> {
         &mut self,
         instr: Instr,
         op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>,
-    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
+    ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         self.write_reg(instr.dst(), op(src1, src2));
         self.ip += 1;
-        Ok(ControlFlow::Continue(()))
+        Ok(ControlFlow::Continue)
     }
 
     fn execute_branch_instr(
         &mut self,
         instr: Instr,
         cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
-    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
+    ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         if cmp(src1, src2) {
@@ -71,34 +79,34 @@ impl<'f> VM<'f> {
         } else {
             self.ip += 1;
         }
-        Ok(ControlFlow::Continue(()))
+        Ok(ControlFlow::Continue)
     }
 
     fn execute_set_instr(
         &mut self,
         instr: Instr,
         cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
-    ) -> Result<ControlFlow<(), ()>, RuntimeError> {
+    ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
         self.write_reg(instr.dst(), Value::from_bool(cmp(src1, src2)));
         self.ip += 1;
-        Ok(ControlFlow::Continue(()))
+        Ok(ControlFlow::Continue)
     }
 
-    fn ret(&mut self, value: Value<'f>) -> Result<ControlFlow<(), ()>, RuntimeError> {
+    fn ret(&mut self, value: Value<'f>) -> Result<ControlFlow, RuntimeError> {
         let Some(prev_call) = self.call_stack.pop() else {
-            return Ok(ControlFlow::Break(()));
+            return Ok(ControlFlow::Break);
         };
         self.fun = prev_call.fun;
         self.ip = prev_call.ip + 1;
         let call_instr = self.fun.bytecode[prev_call.ip];
         self.value_stack_base -= call_instr.args_start() as usize;
         self.write_reg(call_instr.dst(), value);
-        Ok(ControlFlow::Continue(()))
+        Ok(ControlFlow::Continue)
     }
 
-    pub fn execute_next_instr(&mut self) -> Result<ControlFlow<(), ()>, RuntimeError> {
+    pub fn execute_next_instr(&mut self) -> Result<ControlFlow, RuntimeError> {
         let instr = self.fun.bytecode[self.ip];
 
         fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
@@ -122,7 +130,7 @@ impl<'f> VM<'f> {
                 let src1 = self.read_value(instr.src1());
                 self.write_reg(instr.dst(), src1);
                 self.ip += 1;
-                Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue)
             }
 
             Op::IADD => self.execute_arith_instr(instr, int_op(|a, b| a + b)),
@@ -157,7 +165,7 @@ impl<'f> VM<'f> {
                 } else {
                     self.ip -= instr.jump_offset().neg() as usize;
                 }
-                Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue)
             }
             Op::CALL => {
                 let fun = unsafe { self.read_value(instr.src1()).as_fun() };
@@ -178,7 +186,7 @@ impl<'f> VM<'f> {
                         self.ip = 0;
                     }
                 }
-                Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue)
             }
             Op::RET => {
                 let src = self.read_value(instr.src1());
@@ -193,7 +201,7 @@ impl<'f> VM<'f> {
                 }
                 self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
                 self.ip += 1;
-                Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue)
             }
             Op::GET_ARRAY => {
                 let array = self.read_value(instr.src1());
@@ -201,7 +209,7 @@ impl<'f> VM<'f> {
                 let index = self.read_value(instr.src2());
                 self.write_reg(instr.dst(), array_object.get(index.as_int() as u64));
                 self.ip += 1;
-                Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue)
             }
         }
     }

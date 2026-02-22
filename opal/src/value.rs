@@ -1,7 +1,7 @@
 use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 
 use crate::{
-    heap::{HeapObject, ObjectHeader},
+    heap::{ArrayObject, HeapObject, ObjectHeader},
     infer::Type,
     lower::CompiledFun,
     vm::{Fun, RuntimeError},
@@ -9,6 +9,11 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Value<'f>(u64, PhantomData<&'f ()>);
+
+pub struct Array<'h, T> {
+    object: ArrayObject<'h>,
+    phantom: PhantomData<T>,
+}
 
 pub trait ValueConv {
     const TYPE: Type;
