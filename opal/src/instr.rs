@@ -126,7 +126,7 @@ pub struct Reg(pub u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cst(pub u8);
 
-#[derive(Debug, EnumIs)]
+#[derive(Debug, EnumIs, Clone, Copy)]
 pub enum Val {
     Reg(Reg),
     Cst(Cst),

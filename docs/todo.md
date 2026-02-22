@@ -19,6 +19,7 @@
 - Garbage collection
 - Use strict provenance API
 - Length of array as built in operation
+- Array equality
 
 # IN DEV
 

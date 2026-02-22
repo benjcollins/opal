@@ -111,6 +111,7 @@ impl<'e> Inferer<'e> {
                 } else if let Some(sig) = self.env.get(var.ident()) {
                     (TypedVar::Env(var.ident().clone()), Type::Fun(sig.clone()))
                 } else {
+                    println!("{}", var.0.0.as_str());
                     return Err(TypeError("undefined varaible"));
                 };
                 (TypedExpr::Var(typed_var), ty)

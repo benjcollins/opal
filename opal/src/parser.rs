@@ -5,7 +5,7 @@ use colored::Colorize;
 use crate::{
     ast::{
         ArithOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp, Module, ModuleItem,
-        Stmt, Type, VarDef, VarUse,
+        Stmt, VarDef, VarUse,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
@@ -280,7 +280,7 @@ impl<'s, 'p> Parser<'s, 'p> {
         if self.advance(Keyword::Let) {
             let var = self.parse_var_def()?;
             let ty = if self.advance(Symbol::Colon) {
-                Some(self.parse_type()?)
+                Some(self.parse_expr(0)?)
             } else {
                 None
             };
@@ -351,10 +351,6 @@ impl<'s, 'p> Parser<'s, 'p> {
         }
         Ok(vec)
     }
-    pub fn parse_type(&mut self) -> Result<Type, Recovered> {
-        let ident = Ident::new(self.expect(token::Ident)?);
-        Ok(Type(ident))
-    }
     pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {
         if self.advance(Keyword::Fun) {
             let name = Ident::new(self.expect(token::Ident)?);
@@ -362,11 +358,11 @@ impl<'s, 'p> Parser<'s, 'p> {
             let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
                 let var = self_.parse_var_def()?;
                 self_.expect(Symbol::Colon)?;
-                let ty = self_.parse_type()?;
+                let ty = self_.parse_expr(0)?;
                 Ok((var, ty))
             })?;
             let returns = if self.advance(Symbol::RightArrow) {
-                Some(self.parse_type()?)
+                Some(self.parse_expr(0)?)
             } else {
                 None
             };

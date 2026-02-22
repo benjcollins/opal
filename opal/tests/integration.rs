@@ -4,6 +4,7 @@ use opal::{
     heap::ObjectHeap,
     parser::parse_module,
     runtime::{Heap, Runtime},
+    value::Array,
     vm::{Fun, RuntimeError},
 };
 use std::{
@@ -33,6 +34,11 @@ fn print_float(value: f64) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
+fn len(array: Array<i64>) -> Result<i64, RuntimeError> {
+    Ok(array.len())
+}
+
+#[opal_proc::fun]
 fn fail() -> Result<Infallible, RuntimeError> {
     Err(RuntimeError)
 }
@@ -45,16 +51,19 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     let heap = Heap::new();
     let object_heap = ObjectHeap::new();
     let mut runtime = Runtime::new(&heap, &object_heap);
+
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print_float);
     runtime.register_native_fun(print_int);
     runtime.register_native_fun(fail);
+    runtime.register_native_fun(len);
+
     runtime
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
 
-    fs::create_dir_all("tests/bytecode")?;
-    let path = format!("tests/bytecode/{}.bcode", module.name.0);
+    fs::create_dir_all("tests/output")?;
+    let path = format!("tests/output/{}.asm", module.name.0);
     if !fs::exists(&path)? {
         let mut file = File::create(&path)?;
         let mut fun_names: Vec<_> = runtime.funs.keys().collect();
@@ -69,6 +78,7 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
                 writeln!(file)?;
             }
         }
+        file.flush()?;
     }
 
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
@@ -80,9 +90,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut tests = vec![];
 
-    fs::remove_dir_all("tests/bytecode")?;
+    fs::create_dir_all("tests/output")?;
 
-    for item in fs::read_dir("tests/tests")? {
+    for item in fs::read_dir("tests/output")? {
+        let item = item?;
+        if item.file_type()?.is_file() {
+            fs::remove_file(item.path())?;
+        }
+    }
+
+    for item in fs::read_dir("tests/src")? {
         let item = item?;
         let path = item.path();
 

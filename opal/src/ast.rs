@@ -86,7 +86,7 @@ pub enum LogicalOp {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Let { var: VarDef, ty: Option<Type>, expr: Expr },
+    Let { var: VarDef, ty: Option<Expr>, expr: Expr },
     Assign { dst: Expr, op: Option<ArithOp>, src: Expr },
     Return(Option<Expr>),
     Expr(Expr),
@@ -113,14 +113,11 @@ pub struct Block {
     pub stmts: Vec<Stmt>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Type(pub Ident);
-
 #[derive(Debug)]
 pub struct Fun {
     pub name: Ident,
-    pub params: Vec<(VarDef, Type)>,
-    pub returns: Option<Type>,
+    pub params: Vec<(VarDef, Expr)>,
+    pub returns: Option<Expr>,
     pub block: Block,
 }
 

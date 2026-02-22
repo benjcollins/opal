@@ -338,7 +338,18 @@ impl<'f> Lowerer<'f> {
                 };
                 let index = self.lower_expr_val(index);
                 let value = self.lower_expr_val(src);
+
+                let value = match op {
+                    Some((op, ty)) => {
+                        let reg = self.alloc_reg();
+                        self.bytecode.instr().get_array(reg, Val::Reg(array), index);
+                        self.lower_infix_arith(op, ty, reg, Val::Reg(reg), value);
+                        Val::Reg(reg)
+                    }
+                    None => value,
+                };
                 self.bytecode.instr().set_array(array, value, index);
+
                 self.exit_stack_frame();
             }
             _ => panic!(),

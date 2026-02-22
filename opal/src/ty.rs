@@ -1,4 +1,4 @@
-use crate::ast;
+use crate::ast::{Expr, Ident, VarUse};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -34,16 +34,29 @@ pub enum NumericType {
     Float,
 }
 
-impl TryFrom<&ast::Type> for Type {
+impl TryFrom<&Expr> for Type {
     type Error = ();
 
-    fn try_from(ty: &ast::Type) -> Result<Self, Self::Error> {
-        Ok(match ty.0.0.as_str() {
-            "Int" => Type::Int,
-            "Float" => Type::Float,
-            "Bool" => Type::Bool,
-            "Unit" => Type::Unit,
-            "Void" => Type::Void,
+    fn try_from(expr: &Expr) -> Result<Self, Self::Error> {
+        Ok(match expr {
+            Expr::Var(VarUse(Ident(ident))) => match ident.as_str() {
+                "Int" => Type::Int,
+                "Float" => Type::Float,
+                "Bool" => Type::Bool,
+                "Unit" => Type::Unit,
+                "Void" => Type::Void,
+                _ => return Err(()),
+            },
+            Expr::Index(ty, param) => {
+                let Expr::Var(VarUse(Ident(name))) = ty.as_ref() else {
+                    return Err(());
+                };
+                if name.as_str() != "Array" {
+                    return Err(());
+                }
+                let param = param.as_ref().try_into()?;
+                Type::Array(Box::new(param))
+            }
             _ => return Err(()),
         })
     }
