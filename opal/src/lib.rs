@@ -10,6 +10,7 @@ pub mod parser;
 pub mod runtime;
 pub mod scope;
 pub mod token;
+pub mod ty;
 pub mod typed_ast;
 pub mod value;
 pub mod vm;

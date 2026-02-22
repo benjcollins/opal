@@ -1,10 +1,13 @@
 module main;
 
 fun main() {
-    let x = [1, 2, 3];
+    let arr = [1, 2, 3];
 
+    let i = 0;
+    while (i < len(arr)) {
+        print_int(arr[i]);
+        i += 1;
+    }
 
-    print_int(x[0]);
-    print_int(x[1]);
-    print_int(x[2]);
+    print_array(arr);
 }

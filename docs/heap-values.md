@@ -1,18 +1,11 @@
 
 heap values
 
-header 32 bits
-
-tag
-- bytes (len 28 bits)
-- record/tuple (gc bits 28 bits)
-- array len gc bit (1 bit gc bit, 27 bit len)
-- stack
-
-tag - 2 bits
-gc - 2 bits
-
-
-ttggxxxx xxxxxxxx xxxxxxxx xxxxxxxx
-
-xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxdd
+- next allocation usize bits
+- tag 2 bit
+- marked 1 bit
+- refcount 29 bits
+- payload 32 bits
+  - 32 bit len
+  - 1 bit gc, 31 bit len
+  - 32 bit one per field

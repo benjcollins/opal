@@ -1,5 +1,5 @@
 use std::{
-    alloc::{GlobalAlloc, Layout, alloc, dealloc},
+    alloc::{Layout, alloc, dealloc},
     cell::Cell,
     marker::PhantomData,
 };
@@ -52,7 +52,7 @@ impl<'h> HeapObject<'h> {
 }
 
 impl<'h> ArrayObject<'h> {
-    fn len(self) -> u64 {
+    pub fn len(self) -> u64 {
         self.0.header().payload()
     }
     pub fn get(self, index: u64) -> Value<'h> {

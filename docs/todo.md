@@ -23,6 +23,7 @@
 
 # DONE
 
+- Use arrays in native functions
 - Read element from array. HARD
 - Create arrays with list of elements. HARD
 - Diverge checks MEDIUM

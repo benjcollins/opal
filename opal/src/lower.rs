@@ -3,8 +3,8 @@ use std::{cell::Cell, collections::HashMap};
 use crate::{
     ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
     bytecode::BytecodeBuffer,
-    infer::NumericType,
     instr::{Cst, Instr, Reg, Val},
+    ty::NumericType,
     typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
     value::Value,
 };

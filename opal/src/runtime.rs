@@ -5,8 +5,9 @@ use elsa::FrozenVec;
 use crate::{
     ast::{Ident, Module, ModuleItem},
     heap::ObjectHeap,
-    infer::{FunSig, Type, infer_fun, resolve_type},
+    infer::infer_fun,
     lower::{CompiledFun, lower_fun},
+    ty::{BorrowedType, FunSig, Type},
     value::Value,
     vm::{ControlFlow, Fun, RuntimeError, VM},
 };
@@ -14,16 +15,16 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct NativeFun {
     pub name: &'static str,
-    pub params: &'static [Type],
-    pub returns: &'static Type,
+    pub params: &'static [BorrowedType<'static>],
+    pub returns: BorrowedType<'static>,
     pub fun: for<'h> fn(&[Value<'h>]) -> Result<Value<'h>, RuntimeError>,
 }
 
 impl NativeFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
-            params: self.params.to_vec(),
-            returns: Box::new(self.returns.clone()),
+            params: Vec::from_iter(self.params.into_iter().map(|ty| ty.into())),
+            returns: Box::new((&self.returns).into()),
         }
     }
 }
@@ -71,12 +72,12 @@ impl<'h> Runtime<'h> {
                     let params = fun
                         .params
                         .iter()
-                        .map(|(_, ty)| resolve_type(ty).unwrap())
+                        .map(|(_, ty)| ty.try_into().unwrap())
                         .collect::<Vec<_>>();
                     let returns = fun
                         .returns
                         .as_ref()
-                        .map(|ty| resolve_type(ty).unwrap())
+                        .map(|ty| ty.try_into().unwrap())
                         .unwrap_or(Type::Unit);
                     self.fun_sigs.insert(fun.name.clone(), FunSig::new(params, returns));
                 }

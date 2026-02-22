@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use opal::heap::ObjectHeap;
 use opal::parser::parse_module;
 use opal::runtime::{Heap, Runtime};
+use opal::value::Array;
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
@@ -12,6 +13,8 @@ fn main() -> ExitCode {
     let object_heap = ObjectHeap::new();
     let mut runtime = Runtime::new(&heap, &object_heap);
 
+    runtime.register_native_fun(len);
+    runtime.register_native_fun(print_array);
     runtime.register_native_fun(print_int);
     runtime.register_native_fun(print_float);
     runtime.register_native_fun(print_bool);
@@ -33,6 +36,21 @@ fn main() -> ExitCode {
     runtime.execute_fun("main").unwrap();
 
     ExitCode::SUCCESS
+}
+
+#[opal_proc::fun]
+fn len(array: Array<i64>) -> Result<i64, RuntimeError> {
+    Ok(array.len())
+}
+
+#[opal_proc::fun]
+fn print_array(array: Array<i64>) -> Result<(), RuntimeError> {
+    let mut elements = vec![];
+    for index in 0..array.len() {
+        elements.push(array.get(index));
+    }
+    println!("{:?}", elements);
+    Ok(())
 }
 
 #[opal_proc::fun]

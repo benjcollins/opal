@@ -1,48 +1,13 @@
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    ast::{self, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
+    ast::{Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
     scope::Scope,
+    ty::{FunSig, Type},
     typed_ast::{
         LocalTypedVar, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId,
     },
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Type {
-    Int,
-    Float,
-    Bool,
-    Unit,
-    Void,
-    Array(Box<Type>),
-    Fun(FunSig),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NumericType {
-    Int,
-    Float,
-}
-
-impl From<NumericType> for Type {
-    fn from(value: NumericType) -> Self {
-        match value {
-            NumericType::Int => Type::Int,
-            NumericType::Float => Type::Float,
-        }
-    }
-}
-
-impl Type {
-    fn as_numeric_type(&self) -> Option<NumericType> {
-        match self {
-            Type::Int => Some(NumericType::Int),
-            Type::Float => Some(NumericType::Float),
-            _ => None,
-        }
-    }
-}
 
 pub struct Inferer<'e> {
     next_var_id: u32,
@@ -60,40 +25,14 @@ fn infer_lit(lit: &Lit) -> Type {
     }
 }
 
-pub fn resolve_type(ty: &ast::Type) -> Result<Type, TypeError> {
-    Ok(match ty.0.0.as_str() {
-        "Int" => Type::Int,
-        "Float" => Type::Float,
-        "Bool" => Type::Bool,
-        "Unit" => Type::Unit,
-        "Void" => Type::Void,
-        _ => return Err(TypeError("invalid type name")),
-    })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunSig {
-    pub params: Vec<Type>,
-    pub returns: Box<Type>,
-}
-
-impl FunSig {
-    pub fn new(params: Vec<Type>, returns: Type) -> FunSig {
-        FunSig {
-            params,
-            returns: Box::new(returns),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub struct TypeError(&'static str);
+pub struct TypeError(pub &'static str);
 
 pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, TypeError> {
     let returns = fun
         .returns
         .as_ref()
-        .map(resolve_type)
+        .map(|ty| ty.try_into().map_err(|_| TypeError("could not convert type")))
         .transpose()?
         .unwrap_or(Type::Unit);
 
@@ -106,7 +45,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, Ty
     inferer.scope.enter_block();
     let mut params = vec![];
     for (var, ty) in &fun.params {
-        let ty = resolve_type(ty)?;
+        let ty = ty.try_into().map_err(|_| TypeError("could not convert type"))?;
         params.push(inferer.insert_var(var, ty));
     }
     let block = inferer.infer_block(&fun.block)?;
@@ -262,7 +201,7 @@ impl<'e> Inferer<'e> {
             Stmt::Let { var, ty, expr } => {
                 let (expr, expr_ty) = self.infer_expr(expr)?;
                 if let Some(ty) = ty {
-                    if expr_ty != resolve_type(ty)? {
+                    if expr_ty != ty.try_into().map_err(|_| TypeError("could not convert type"))? {
                         return Err(TypeError("wrong type annotation!"));
                     }
                 }

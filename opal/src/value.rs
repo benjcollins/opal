@@ -2,8 +2,8 @@ use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 
 use crate::{
     heap::{ArrayObject, HeapObject, ObjectHeader},
-    infer::Type,
     lower::CompiledFun,
+    ty::BorrowedType,
     vm::{Fun, RuntimeError},
 };
 
@@ -15,71 +15,88 @@ pub struct Array<'h, T> {
     phantom: PhantomData<T>,
 }
 
-pub trait ValueConv {
-    const TYPE: Type;
+pub trait ValueConv<'h> {
+    const TYPE: BorrowedType<'static>;
 
-    fn into_value<'h>(self) -> Value<'h>;
-    fn from_value<'h>(value: Value<'h>) -> Self;
+    fn into_value(self) -> Value<'h>;
+    fn from_value(value: Value<'h>) -> Self;
 }
 
-pub trait NativeFunResult {
-    type Output: ValueConv;
-    fn map<'h>(self) -> Result<Value<'h>, RuntimeError>;
+pub trait NativeFunResult<'h> {
+    type Output: ValueConv<'h>;
+    fn map(self) -> Result<Value<'h>, RuntimeError>;
 }
 
-impl<T: ValueConv> NativeFunResult for Result<T, RuntimeError> {
+impl<'h, T: ValueConv<'h>> NativeFunResult<'h> for Result<T, RuntimeError> {
     type Output = T;
-    fn map<'h>(self) -> Result<Value<'h>, RuntimeError> {
+    fn map(self) -> Result<Value<'h>, RuntimeError> {
         self.map(|t| t.into_value())
     }
 }
 
-impl ValueConv for i64 {
-    const TYPE: Type = Type::Int;
-    fn into_value<'h>(self) -> Value<'h> {
+impl<'h, T: ValueConv<'h>> ValueConv<'h> for Array<'h, T> {
+    const TYPE: BorrowedType<'static> = BorrowedType::Array(&T::TYPE);
+
+    fn into_value(self) -> Value<'h> {
+        Value::from_object(self.object.heap_object())
+    }
+
+    fn from_value(value: Value<'h>) -> Self {
+        unsafe {
+            Array {
+                object: value.as_object().as_array().unwrap(),
+                phantom: PhantomData,
+            }
+        }
+    }
+}
+
+impl<'h> ValueConv<'h> for i64 {
+    const TYPE: BorrowedType<'static> = BorrowedType::Int;
+    fn into_value(self) -> Value<'h> {
         Value::from_int(self)
     }
-    fn from_value<'h>(value: Value<'h>) -> Self {
+    fn from_value(value: Value<'h>) -> Self {
         value.as_int()
     }
 }
 
-impl ValueConv for bool {
-    const TYPE: Type = Type::Bool;
-    fn into_value<'h>(self) -> Value<'h> {
+impl<'h> ValueConv<'h> for bool {
+    const TYPE: BorrowedType<'static> = BorrowedType::Bool;
+    fn into_value(self) -> Value<'h> {
         Value::from_bool(self)
     }
-    fn from_value<'h>(value: Value<'h>) -> Self {
+    fn from_value(value: Value<'h>) -> Self {
         value.as_bool()
     }
 }
 
-impl ValueConv for f64 {
-    const TYPE: Type = Type::Float;
-    fn into_value<'h>(self) -> Value<'h> {
+impl<'h> ValueConv<'h> for f64 {
+    const TYPE: BorrowedType<'static> = BorrowedType::Float;
+    fn into_value(self) -> Value<'h> {
         Value::from_float(self)
     }
-    fn from_value<'h>(value: Value<'h>) -> Self {
+    fn from_value(value: Value<'h>) -> Self {
         value.as_float()
     }
 }
 
-impl ValueConv for () {
-    const TYPE: Type = Type::Unit;
-    fn into_value<'h>(self) -> Value<'h> {
+impl<'h> ValueConv<'h> for () {
+    const TYPE: BorrowedType<'static> = BorrowedType::Unit;
+    fn into_value(self) -> Value<'h> {
         Value::from_unit(())
     }
-    fn from_value<'h>(_: Value<'h>) -> Self {}
+    fn from_value(_: Value<'h>) -> Self {}
 }
 
-impl ValueConv for Infallible {
-    const TYPE: Type = Type::Void;
+impl<'h> ValueConv<'h> for Infallible {
+    const TYPE: BorrowedType<'static> = BorrowedType::Void;
 
-    fn into_value<'h>(self) -> Value<'h> {
+    fn into_value(self) -> Value<'h> {
         match self {}
     }
 
-    fn from_value<'h>(_: Value<'h>) -> Self {
+    fn from_value(_: Value<'h>) -> Self {
         unreachable!()
     }
 }
@@ -131,8 +148,16 @@ impl<'f> Value<'f> {
             phantom: PhantomData,
         }
     }
-    // pub unsafe fn as_array(self) -> &'f [Value<'f>] {
-    //     let ptr = self.0 as *const u64;
-    //     unsafe { slice::from_raw_parts(ptr.add(1) as *const Value<'f>, ptr::read(ptr) as usize) }
-    // }
+}
+
+impl<'h, T: ValueConv<'h>> Array<'h, T> {
+    pub fn len(&self) -> i64 {
+        self.object.len() as i64
+    }
+    pub fn get(&self, index: i64) -> T {
+        T::from_value(self.object.get(index as u64))
+    }
+    pub fn set(&self, index: i64, value: T) {
+        self.object.set(index as u64, value.into_value());
+    }
 }

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
-    infer::{NumericType, Type},
+    ty::{NumericType, Type},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
