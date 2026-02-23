@@ -17,7 +17,6 @@
 - Tree sitter grammar. HARD
 - Create arrays with default element and size. MEDIUM
 - Garbage collection
-- Use strict provenance API
 - Length of array as built in operation
 - Array equality
 
@@ -26,6 +25,7 @@
 
 # DONE
 
+- Use strict provenance API
 - Write element to array. HARD
 - Use arrays in native functions
 - Read element from array. HARD

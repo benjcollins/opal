@@ -36,6 +36,12 @@ enum Tag {
 const HEAP_SIZE: usize = 1024 * 1024 * 1024;
 
 impl<'h> HeapObject<'h> {
+    pub unsafe fn new(ptr: *mut ObjectHeader) -> HeapObject<'h> {
+        HeapObject {
+            ptr,
+            phantom: PhantomData,
+        }
+    }
     fn header(&self) -> ObjectHeader {
         unsafe { self.ptr.read() }
     }

@@ -3,7 +3,6 @@ use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 use crate::{
     heap::{ArrayObject, HeapObject, ObjectHeader},
     lower::CompiledFun,
-    runtime::NativeFunSig,
     ty::BorrowedType,
     vm::{Fun, RuntimeError},
 };
@@ -137,10 +136,7 @@ impl<'f> Value<'f> {
     }
     pub fn from_fun(fun: Fun) -> Value<'f> {
         match fun {
-            Fun::Native(fun) => {
-                println!("{:b}", (fun as *mut ()).addr());
-                Value::new((fun as *mut ()).map_addr(|addr| addr | NATIVE_FUN_BIT))
-            }
+            Fun::Native(fun) => Value::new((fun as *mut ()).map_addr(|addr| addr | NATIVE_FUN_BIT)),
             Fun::Compiled(fun) => Value::new(ptr::from_ref(fun) as *mut ()),
         }
     }
@@ -160,18 +156,14 @@ impl<'f> Value<'f> {
         unsafe {
             if self.0.addr() & NATIVE_FUN_BIT != 0 {
                 let ptr = self.0.map_addr(|addr| addr & !NATIVE_FUN_BIT);
-                println!("{:b} {:b}", self.0.addr(), ptr.addr());
-                Fun::Native(*(ptr as *mut NativeFunSig))
+                Fun::Native(transmute(ptr))
             } else {
                 Fun::Compiled((self.0 as *const CompiledFun).as_ref().unwrap())
             }
         }
     }
     pub unsafe fn as_object(self) -> HeapObject<'f> {
-        HeapObject {
-            ptr: self.0 as *mut ObjectHeader,
-            phantom: PhantomData,
-        }
+        unsafe { HeapObject::new(self.0 as *mut ObjectHeader) }
     }
 }
 

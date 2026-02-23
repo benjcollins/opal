@@ -1,0 +1,39 @@
+abs:
+  FBLE r(0), c(0), 2;
+  RET r(0);
+  FSUB r(1), c(0), r(0);
+  RET r(1);
+
+approx_square_root:
+  FDIV r(2), r(0), c(0);
+  MOV r(3), c(1);
+  IBLE r(1), r(3), 6;
+  FDIV r(5), r(0), r(2);
+  FADD r(4), r(2), r(5);
+  FDIV r(2), r(4), c(0);
+  IADD r(3), r(3), c(2);
+  JMP -5;
+  RET r(2);
+
+test_approx_square_root_123:
+  MOV r(0), c(0);
+  FMUL r(2), r(0), r(0);
+  MOV r(3), c(2);
+  CALL r(1), c(1), 2;
+  FSUB r(3), r(0), r(1);
+  CALL r(2), c(3), 3;
+  FSLT r(4), r(2), c(5);
+  CALL r(3), c(4), 4;
+  RET c(6);
+
+test_approx_square_root_738:
+  MOV r(0), c(0);
+  FMUL r(2), r(0), r(0);
+  MOV r(3), c(2);
+  CALL r(1), c(1), 2;
+  FSUB r(3), r(0), r(1);
+  CALL r(2), c(3), 3;
+  FSLT r(4), r(2), c(5);
+  CALL r(3), c(4), 4;
+  RET c(6);
+

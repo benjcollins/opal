@@ -5,4 +5,7 @@ test_shadowing:
   MOV r(1), c(1);
   MOV r(3), r(1);
   CALL r(2), c(2), 3;
-  SEQ
+  SEQ r(2), r(0), c(0);
+  CALL r(1), c(3), 2;
+  RET c(4);
+
