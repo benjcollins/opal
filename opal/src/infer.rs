@@ -1,11 +1,12 @@
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    ast::{Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
+    ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
     scope::Scope,
     ty::{FunSig, Type},
     typed_ast::{
-        LocalTypedVar, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId,
+        LocalTypedVar, TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt,
+        TypedVar, VarId,
     },
 };
 
@@ -111,7 +112,6 @@ impl<'e> Inferer<'e> {
                 } else if let Some(sig) = self.env.get(var.ident()) {
                     (TypedVar::Env(var.ident().clone()), Type::Fun(sig.clone()))
                 } else {
-                    println!("{}", var.0.0.as_str());
                     return Err(TypeError("undefined varaible"));
                 };
                 (TypedExpr::Var(typed_var), ty)
@@ -156,6 +156,12 @@ impl<'e> Inferer<'e> {
                             return Err(TypeError("equality operands type mismatch"));
                         }
                         (TypedInfixOp::Equality(op), Type::Bool)
+                    }
+                    InfixOp::Bitwise(op) => {
+                        if left_ty != Type::Int || right_ty != Type::Int {
+                            return Err(TypeError("bitwise operator type mismatch"));
+                        }
+                        (TypedInfixOp::Bitwise(op), Type::Int)
                     }
                 };
 
@@ -215,16 +221,20 @@ impl<'e> Inferer<'e> {
                 if dst_ty != src_ty {
                     return Err(TypeError("assignment type mismatch"));
                 }
-                let op = if let Some(op) = *op {
-                    let ty = dst_ty
-                        .as_numeric_type()
-                        .ok_or(TypeError("assign arith type mismatch"))?;
-                    src_ty
-                        .as_numeric_type()
-                        .ok_or(TypeError("assign arith type mismatch"))?;
-                    Some((op, ty))
-                } else {
-                    None
+                let op = match *op {
+                    Some(AssignOp::Arith(op)) => {
+                        let ty = dst_ty
+                            .as_numeric_type()
+                            .ok_or(TypeError("assign arith type mismatch"))?;
+                        Some(TypedAssignOp::Arith(op, ty))
+                    }
+                    Some(AssignOp::Bitwise(op)) => {
+                        if dst_ty != Type::Int {
+                            return Err(TypeError("assign bitwise type mismatch"))?;
+                        }
+                        Some(TypedAssignOp::Bitwise(op))
+                    }
+                    None => None,
                 };
                 (TypedStmt::Assign { dst, op, src }, false)
             }

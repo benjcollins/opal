@@ -97,19 +97,19 @@ fun test_logical_op_invert() {
     while (false || false) { fail(); }
 
     let x = true;
-    while (x && x) { x = false; }
+    while (x && x) { x := false; }
     assert(x == false);
 
     let x = true;
-    while (x || x) { x = false; }
+    while (x || x) { x := false; }
     assert(x == false);
 
     let x = true;
-    while (x || false) { x = false; }
+    while (x || false) { x := false; }
     assert(x == false);
 
     let x = true;
-    while (false || x) { x = false; }
+    while (false || x) { x := false; }
     assert(x == false);
 }
 

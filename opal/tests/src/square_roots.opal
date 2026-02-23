@@ -7,7 +7,7 @@ fun approx_square_root(n: Float, c: Int) -> Float {
     let x = n / 2.0;
     let i = 0;
     while (i < c) {
-        x = (x + n / x) / 2.0;
+        x := (x + n / x) / 2.0;
         i += 1;
     }
     return x;

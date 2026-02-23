@@ -4,8 +4,8 @@ use colored::Colorize;
 
 use crate::{
     ast::{
-        ArithOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp, Module, ModuleItem,
-        Stmt, VarDef, VarUse,
+        ArithOp, AssignOp, BitwiseOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp,
+        Module, ModuleItem, Stmt, VarDef, VarUse,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
@@ -83,37 +83,53 @@ fn line_column(source: &str, offset: usize) -> (u32, u32) {
 }
 
 const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
-    (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 5),
-    (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 5),
-    (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 5),
+    (Symbol::Star, InfixOp::Arith(ArithOp::Multiply), 10),
+    (Symbol::Slash, InfixOp::Arith(ArithOp::Divide), 10),
+    (Symbol::Percent, InfixOp::Arith(ArithOp::Modulus), 10),
     //
-    (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 4),
-    (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 4),
+    (Symbol::Plus, InfixOp::Arith(ArithOp::Add), 9),
+    (Symbol::Minus, InfixOp::Arith(ArithOp::Subtract), 9),
     //
-    (Symbol::DoubleEquals, InfixOp::Equality(EqualityOp::Equal), 3),
-    (Symbol::BangEquals, InfixOp::Equality(EqualityOp::NotEqual), 3),
-    (Symbol::Less, InfixOp::Comp(CompOp::Less), 3),
-    (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 3),
-    (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 3),
-    (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 3),
+    (Symbol::DoubleLess, InfixOp::Bitwise(BitwiseOp::ShiftLeft), 8),
+    (Symbol::DoubleGreater, InfixOp::Bitwise(BitwiseOp::ShiftRight), 8),
+    //
+    (Symbol::Less, InfixOp::Comp(CompOp::Less), 7),
+    (Symbol::Greater, InfixOp::Comp(CompOp::Greater), 7),
+    (Symbol::LessEquals, InfixOp::Comp(CompOp::LessEqual), 7),
+    (Symbol::GreaterEquals, InfixOp::Comp(CompOp::GreaterEqual), 7),
+    //
+    (Symbol::DoubleEquals, InfixOp::Equality(EqualityOp::Equal), 6),
+    (Symbol::BangEquals, InfixOp::Equality(EqualityOp::NotEqual), 6),
+    //
+    (Symbol::Ampersand, InfixOp::Bitwise(BitwiseOp::And), 5),
+    (Symbol::Caret, InfixOp::Bitwise(BitwiseOp::XOr), 4),
+    (Symbol::Pipe, InfixOp::Bitwise(BitwiseOp::Or), 3),
     //
     (Symbol::DoubleAmpersand, InfixOp::Logical(LogicalOp::And), 2),
     (Symbol::DoublePipe, InfixOp::Logical(LogicalOp::Or), 1),
 ];
 
 const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr) -> Result<Expr, Recovered>)] = &[
-    (Symbol::OpenParen, 6, |self_, expr| self_.parse_expr_call(expr)),
-    (Symbol::OpenBracket, 6, |self_, expr| self_.parse_expr_index(expr)),
-    //
+    (Symbol::OpenParen, 11, |self_, expr| self_.parse_expr_call(expr)),
+    (Symbol::OpenBracket, 11, |self_, expr| self_.parse_expr_index(expr)),
 ];
 
-const ASSIGN_OPS: &[(Option<ArithOp>, Symbol)] = &[
-    (None, Symbol::Equals),
-    (Some(ArithOp::Add), Symbol::PlusEquals),
-    (Some(ArithOp::Subtract), Symbol::MinusEquals),
-    (Some(ArithOp::Multiply), Symbol::StarEquals),
-    (Some(ArithOp::Divide), Symbol::SlashEquals),
-    (Some(ArithOp::Modulus), Symbol::PercentEquals),
+const ASSIGN_OPS: &[(Option<AssignOp>, Symbol)] = &[
+    (None, Symbol::ColonEquals),
+    (Some(AssignOp::Arith(ArithOp::Add)), Symbol::PlusEquals),
+    (Some(AssignOp::Arith(ArithOp::Subtract)), Symbol::MinusEquals),
+    (Some(AssignOp::Arith(ArithOp::Multiply)), Symbol::StarEquals),
+    (Some(AssignOp::Arith(ArithOp::Divide)), Symbol::SlashEquals),
+    (Some(AssignOp::Arith(ArithOp::Modulus)), Symbol::PercentEquals),
+    //
+    (Some(AssignOp::Bitwise(BitwiseOp::And)), Symbol::AmpersandEquals),
+    (Some(AssignOp::Bitwise(BitwiseOp::Or)), Symbol::PipeEquals),
+    (Some(AssignOp::Bitwise(BitwiseOp::XOr)), Symbol::CaretEquals),
+    (Some(AssignOp::Bitwise(BitwiseOp::ShiftLeft)), Symbol::DoubleLessEquals),
+    (
+        Some(AssignOp::Bitwise(BitwiseOp::ShiftRight)),
+        Symbol::DoubleGreaterEquals,
+    ),
 ];
 
 impl<'s, 'p> Parser<'s, 'p> {

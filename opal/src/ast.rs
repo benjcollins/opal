@@ -53,6 +53,16 @@ pub enum InfixOp {
     Comp(CompOp),
     Equality(EqualityOp),
     Logical(LogicalOp),
+    Bitwise(BitwiseOp),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitwiseOp {
+    And,
+    Or,
+    XOr,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,10 +94,16 @@ pub enum LogicalOp {
     Or,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignOp {
+    Bitwise(BitwiseOp),
+    Arith(ArithOp),
+}
+
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Let { var: VarDef, ty: Option<Expr>, expr: Expr },
-    Assign { dst: Expr, op: Option<ArithOp>, src: Expr },
+    Assign { dst: Expr, op: Option<AssignOp>, src: Expr },
     Return(Option<Expr>),
     Expr(Expr),
     If(If),

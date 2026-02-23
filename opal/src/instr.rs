@@ -13,6 +13,12 @@ pub enum Op {
     IDIV,
     IMOD,
 
+    AND,
+    OR,
+    XOR,
+    SHL,
+    SHR,
+
     FADD,
     FSUB,
     FMUL,
@@ -171,7 +177,12 @@ impl fmt::Display for Instr {
             | Op::FSUB
             | Op::FMUL
             | Op::FDIV
-            | Op::FMOD => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            | Op::FMOD
+            | Op::AND
+            | Op::OR
+            | Op::XOR
+            | Op::SHL
+            | Op::SHR => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
             Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => {
                 write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
             }

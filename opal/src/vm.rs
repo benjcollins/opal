@@ -141,6 +141,11 @@ impl<'f> VM<'f> {
             Op::IMUL => self.execute_arith_instr(instr, int_op(|a, b| a * b)),
             Op::IDIV => self.execute_arith_instr(instr, int_op(|a, b| a / b)),
             Op::IMOD => self.execute_arith_instr(instr, int_op(|a, b| a % b)),
+            Op::AND => self.execute_arith_instr(instr, int_op(|a, b| a & b)),
+            Op::OR => self.execute_arith_instr(instr, int_op(|a, b| a | b)),
+            Op::XOR => self.execute_arith_instr(instr, int_op(|a, b| a ^ b)),
+            Op::SHL => self.execute_arith_instr(instr, int_op(|a, b| a << b)),
+            Op::SHR => self.execute_arith_instr(instr, int_op(|a, b| a >> b)),
 
             Op::FADD => self.execute_arith_instr(instr, float_op(|a, b| a + b)),
             Op::FSUB => self.execute_arith_instr(instr, float_op(|a, b| a - b)),

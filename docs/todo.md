@@ -5,7 +5,6 @@
 
 # READY FOR DEV
 
-- Bitwise operators. EASY
 - Flat memory structure for functions. MEDIUM
 - Module scoping. MEDIUM
 - Snapshot testing. MEDIUM
@@ -25,6 +24,7 @@
 
 # DONE
 
+- Bitwise operators. EASY
 - Use strict provenance API
 - Write element to array. HARD
 - Use arrays in native functions

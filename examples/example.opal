@@ -1,24 +1,17 @@
 module main;
 
 fun main() {
-    let array = [9, 3, 4, 7, 1];
-    print_array(array);
-    sort(array);
-    print_array(array);
+    let n = 17;
+    print_int(count_ones(n));
 }
 
-fun sort(array: Array[Int]) {
-    let i = 0;
-    while (i < len(array)) {
-        let j = i + 1;
-        while (j < len(array)) {
-            if (array[i] > array[j]) {
-                let temp = array[i];
-                array[i] = array[j];
-                array[j] = temp;
-            }
-            j += 1;
+fun count_ones(n: Int) -> Int {
+    let count = 0;
+    while (n != 0) {
+        if ((n & 1) != 0) {
+            count += 1;
         }
-        i += 1;
+        n >>= 1;
     }
+    return count;
 }

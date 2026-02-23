@@ -13,8 +13,8 @@ fun sort(array: Array[Int]) {
         while (j < len(array)) {
             if (array[i] > array[j]) {
                 let temp = array[i];
-                array[i] = array[j];
-                array[j] = temp;
+                array[i] := array[j];
+                array[j] := temp;
             }
             j += 1;
         }

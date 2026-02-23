@@ -68,6 +68,17 @@ pub enum Symbol {
     DoublePipe,
     OpenBracket,
     CloseBracket,
+    Ampersand,
+    Pipe,
+    Caret,
+    AmpersandEquals,
+    PipeEquals,
+    CaretEquals,
+    ColonEquals,
+    DoubleLess,
+    DoubleGreater,
+    DoubleLessEquals,
+    DoubleGreaterEquals,
 }
 
 impl Symbol {
@@ -102,6 +113,17 @@ impl Symbol {
             Symbol::DoublePipe => "||",
             Symbol::OpenBracket => "[",
             Symbol::CloseBracket => "]",
+            Symbol::Ampersand => "&",
+            Symbol::Pipe => "|",
+            Symbol::Caret => "^",
+            Symbol::AmpersandEquals => "&=",
+            Symbol::PipeEquals => "|=",
+            Symbol::CaretEquals => "^=",
+            Symbol::ColonEquals => ":=",
+            Symbol::DoubleLess => "<<",
+            Symbol::DoubleGreater => ">>",
+            Symbol::DoubleLessEquals => "<<=",
+            Symbol::DoubleGreaterEquals => ">>=",
         }
     }
 }

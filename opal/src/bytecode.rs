@@ -175,6 +175,12 @@ impl<'b, L> InstrBuilder<'b, L> {
     define_arith_instr!(fdiv, FDIV);
     define_arith_instr!(fmod, FMOD);
 
+    define_arith_instr!(and, AND);
+    define_arith_instr!(or, OR);
+    define_arith_instr!(xor, XOR);
+    define_arith_instr!(shl, SHL);
+    define_arith_instr!(shr, SHR);
+
     define_branch_instr!(beq, BEQ);
     define_branch_instr!(bne, BNE);
     define_branch_instr!(iblt, IBLT);

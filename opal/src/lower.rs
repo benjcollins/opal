@@ -1,11 +1,13 @@
 use std::{cell::Cell, collections::HashMap};
 
 use crate::{
-    ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
+    ast::{ArithOp, BitwiseOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
     bytecode::BytecodeBuffer,
     instr::{Cst, Instr, Reg, Val},
     ty::NumericType,
-    typed_ast::{TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId},
+    typed_ast::{
+        TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId,
+    },
     value::Value,
 };
 
@@ -259,6 +261,15 @@ impl<'f> Lowerer<'f> {
         self.bytecode.instr().mov(dst, Val::Cst(true_val));
         self.bytecode.label(if_false);
     }
+    fn lower_infix_bitwise(&mut self, op: BitwiseOp, dst: Reg, src1: Val, src2: Val) {
+        match op {
+            BitwiseOp::And => self.bytecode.instr().and(dst, src1, src2),
+            BitwiseOp::Or => self.bytecode.instr().or(dst, src1, src2),
+            BitwiseOp::XOr => self.bytecode.instr().xor(dst, src1, src2),
+            BitwiseOp::ShiftLeft => self.bytecode.instr().shl(dst, src1, src2),
+            BitwiseOp::ShiftRight => self.bytecode.instr().shr(dst, src1, src2),
+        }
+    }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         self.enter_stack_frame();
         match expr {
@@ -294,6 +305,11 @@ impl<'f> Lowerer<'f> {
                     self.lower_infix_equality(op, dst, src1, src2);
                 }
                 TypedInfixOp::Logical(op) => self.lower_infix_logical(op, dst, left, right),
+                TypedInfixOp::Bitwise(op) => {
+                    let src1 = self.lower_expr_val(left);
+                    let src2 = self.lower_expr_val(right);
+                    self.lower_infix_bitwise(op, dst, src1, src2);
+                }
             },
             TypedExpr::Call { fun, args } => {
                 let fun = self.lower_expr_val(fun);
@@ -313,15 +329,18 @@ impl<'f> Lowerer<'f> {
         }
         self.exit_stack_frame();
     }
-    fn lower_assign(&mut self, dst: &TypedExpr, op: Option<(ArithOp, NumericType)>, src: &TypedExpr) {
+    fn lower_assign(&mut self, dst: &TypedExpr, op: Option<TypedAssignOp>, src: &TypedExpr) {
         match dst {
             TypedExpr::Var(var) => {
                 let TypedVar::Local(var) = var else { panic!() };
                 let dst = *self.vars.get(&var.id).unwrap();
                 match op {
-                    Some((op, ty)) => {
+                    Some(op) => {
                         let src = self.lower_expr_val(src);
-                        self.lower_infix_arith(op, ty, dst, Val::Reg(dst), src);
+                        match op {
+                            TypedAssignOp::Arith(op, ty) => self.lower_infix_arith(op, ty, dst, Val::Reg(dst), src),
+                            TypedAssignOp::Bitwise(op) => self.lower_infix_bitwise(op, dst, Val::Reg(dst), src),
+                        }
                     }
                     None => self.lower_expr_dst(src, dst),
                 }
@@ -339,15 +358,16 @@ impl<'f> Lowerer<'f> {
                 let index = self.lower_expr_val(index);
                 let value = self.lower_expr_val(src);
 
-                let value = match op {
-                    Some((op, ty)) => {
-                        let reg = self.alloc_reg();
-                        self.bytecode.instr().get_array(reg, Val::Reg(array), index);
-                        self.lower_infix_arith(op, ty, reg, Val::Reg(reg), value);
-                        Val::Reg(reg)
-                    }
-                    None => value,
-                };
+                let value = op.map_or(value, |op| {
+                    let reg = self.alloc_reg();
+                    self.bytecode.instr().get_array(reg, Val::Reg(array), index);
+                    match op {
+                        TypedAssignOp::Arith(op, ty) => self.lower_infix_arith(op, ty, reg, Val::Reg(reg), value),
+                        TypedAssignOp::Bitwise(op) => self.lower_infix_bitwise(op, reg, Val::Reg(reg), value),
+                    };
+                    Val::Reg(reg)
+                });
+
                 self.bytecode.instr().set_array(array, value, index);
 
                 self.exit_stack_frame();

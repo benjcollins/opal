@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{ArithOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
+    ast::{ArithOp, BitwiseOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
     ty::{NumericType, Type},
 };
 
@@ -28,6 +28,13 @@ pub enum TypedInfixOp {
     Comp(CompOp, NumericType),
     Equality(EqualityOp),
     Logical(LogicalOp),
+    Bitwise(BitwiseOp),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TypedAssignOp {
+    Arith(ArithOp, NumericType),
+    Bitwise(BitwiseOp),
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +62,7 @@ pub enum TypedStmt {
     },
     Assign {
         dst: TypedExpr,
-        op: Option<(ArithOp, NumericType)>,
+        op: Option<TypedAssignOp>,
         src: TypedExpr,
     },
     Expr(TypedExpr),
