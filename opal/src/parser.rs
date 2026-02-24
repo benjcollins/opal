@@ -5,7 +5,7 @@ use colored::Colorize;
 use crate::{
     ast::{
         ArithOp, AssignOp, BitwiseOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp,
-        Module, ModuleItem, Stmt, VarDef, VarUse,
+        Module, ModuleItem, PrefixOp, Stmt, VarDef, VarUse,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
@@ -107,6 +107,13 @@ const INFIX_OPS: &[(Symbol, InfixOp, Prec)] = &[
     //
     (Symbol::DoubleAmpersand, InfixOp::Logical(LogicalOp::And), 2),
     (Symbol::DoublePipe, InfixOp::Logical(LogicalOp::Or), 1),
+];
+
+const PREFIX_OPS: &[(Symbol, Prec, PrefixOp)] = &[
+    (Symbol::Minus, 11, PrefixOp::Negative),
+    (Symbol::Plus, 11, PrefixOp::Positive),
+    (Symbol::Tilde, 11, PrefixOp::BitwiseNot),
+    (Symbol::Bang, 11, PrefixOp::LogicalNot),
 ];
 
 const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr) -> Result<Expr, Recovered>)] = &[
@@ -249,7 +256,19 @@ impl<'s, 'p> Parser<'s, 'p> {
         return Ok(Expr::Index(Box::new(expr), Box::new(index)));
     }
     pub fn parse_expr(&mut self, prec: Prec) -> Result<Expr, Recovered> {
-        let mut left = self.parse_value()?;
+        let mut left = None;
+        for (symbol, op_prec, op) in PREFIX_OPS.iter().copied() {
+            if self.advance(symbol) {
+                let expr = self.parse_expr(op_prec)?;
+                left = Some(Expr::Prefix(op, Box::new(expr)));
+                break;
+            }
+        }
+        let mut left = if let Some(left) = left {
+            left
+        } else {
+            self.parse_value()?
+        };
         'outer: loop {
             for (symbol, op_prec, parse_fn) in POSTFIX_OPS {
                 if *op_prec > prec && self.advance(*symbol) {

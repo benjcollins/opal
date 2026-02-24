@@ -1,12 +1,12 @@
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, Stmt, VarDef},
+    ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, PrefixOp, Stmt, VarDef},
     scope::Scope,
-    ty::{FunSig, Type},
+    ty::{FunSig, NumericType, Type},
     typed_ast::{
-        LocalTypedVar, TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt,
-        TypedVar, VarId,
+        LocalTypedVar, TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedPrefixOp,
+        TypedStmt, TypedVar, VarId,
     },
 };
 
@@ -19,8 +19,8 @@ pub struct Inferer<'e> {
 
 fn infer_lit(lit: &Lit) -> Type {
     match lit {
-        Lit::Int(_) => Type::Int,
-        Lit::Float(_) => Type::Float,
+        Lit::Int(_) => Type::Numeric(NumericType::Int),
+        Lit::Float(_) => Type::Numeric(NumericType::Float),
         Lit::Bool(_) => Type::Bool,
         Lit::Unit => Type::Unit,
     }
@@ -120,49 +120,21 @@ impl<'e> Inferer<'e> {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
                 let (right_expr, right_ty) = self.infer_expr(right)?;
 
-                let (op, ty) = match *op {
-                    InfixOp::Arith(op) => {
-                        let left_ty = left_ty
-                            .as_numeric_type()
-                            .ok_or(TypeError("arithmetic operand left operand is not number"))?;
-                        let right_ty = right_ty
-                            .as_numeric_type()
-                            .ok_or(TypeError("arithmetic operand right operand is not number"))?;
-                        if left_ty != right_ty {
-                            return Err(TypeError("arithmetic operands type mismatch"));
-                        }
-                        (TypedInfixOp::Arith(op, left_ty), left_ty.into())
+                let (op, ty) = match (*op, left_ty, right_ty) {
+                    (InfixOp::Arith(op), Type::Numeric(left_ty), Type::Numeric(right_ty)) if left_ty == right_ty => {
+                        (TypedInfixOp::Arith(op, left_ty), Type::Numeric(left_ty))
                     }
-                    InfixOp::Comp(op) => {
-                        let left_ty = left_ty
-                            .as_numeric_type()
-                            .ok_or(TypeError("comparison operand left operand is not number"))?;
-                        let right_ty = right_ty
-                            .as_numeric_type()
-                            .ok_or(TypeError("comparison operand right operand is not number"))?;
-                        if left_ty != right_ty {
-                            return Err(TypeError("comparison operands type mismatch"));
-                        }
+                    (InfixOp::Comp(op), Type::Numeric(left_ty), Type::Numeric(right_ty)) if left_ty == right_ty => {
                         (TypedInfixOp::Comp(op, left_ty), Type::Bool)
                     }
-                    InfixOp::Logical(op) => {
-                        if left_ty != Type::Bool || right_ty != Type::Bool {
-                            return Err(TypeError("logical operands incorrect type"));
-                        }
-                        (TypedInfixOp::Logical(op), Type::Bool)
-                    }
-                    InfixOp::Equality(op) => {
-                        if left_ty != right_ty {
-                            return Err(TypeError("equality operands type mismatch"));
-                        }
+                    (InfixOp::Logical(op), Type::Bool, Type::Bool) => (TypedInfixOp::Logical(op), Type::Bool),
+                    (InfixOp::Equality(op), left_ty, right_ty) if left_ty == right_ty => {
                         (TypedInfixOp::Equality(op), Type::Bool)
                     }
-                    InfixOp::Bitwise(op) => {
-                        if left_ty != Type::Int || right_ty != Type::Int {
-                            return Err(TypeError("bitwise operator type mismatch"));
-                        }
-                        (TypedInfixOp::Bitwise(op), Type::Int)
+                    (InfixOp::Bitwise(op), Type::Numeric(NumericType::Int), Type::Numeric(NumericType::Int)) => {
+                        (TypedInfixOp::Bitwise(op), Type::Numeric(NumericType::Int))
                     }
+                    _ => return Err(TypeError("infix operator type error")),
                 };
 
                 let typed_expr = TypedExpr::Infix {
@@ -179,11 +151,24 @@ impl<'e> Inferer<'e> {
                     return Err(TypeError("cannot index non array type"));
                 };
                 let (typed_index, index_ty) = self.infer_expr(index)?;
-                if index_ty != Type::Int {
+                if index_ty != Type::Numeric(NumericType::Int) {
                     return Err(TypeError("index type must be an Int"));
                 }
                 let typed_expr = TypedExpr::Index(Box::new(typed_array), Box::new(typed_index));
                 (typed_expr, *element_ty)
+            }
+            Expr::Prefix(op, expr) => {
+                let (typed_expr, expr_ty) = self.infer_expr(expr)?;
+                let (typed_op, ty) = match (op, expr_ty) {
+                    (PrefixOp::Negative, Type::Numeric(ty)) => (TypedPrefixOp::Negative(ty), Type::Numeric(ty)),
+                    (PrefixOp::Positive, Type::Numeric(ty)) => (TypedPrefixOp::Positive(ty), Type::Numeric(ty)),
+                    (PrefixOp::LogicalNot, Type::Bool) => (TypedPrefixOp::LogicalNot, Type::Bool),
+                    (PrefixOp::BitwiseNot, Type::Numeric(NumericType::Int)) => {
+                        (TypedPrefixOp::BitwiseNot, Type::Numeric(NumericType::Int))
+                    }
+                    _ => return Err(TypeError("invalid types!")),
+                };
+                (TypedExpr::Prefix(typed_op, Box::new(typed_expr)), ty)
             }
         };
 
@@ -229,7 +214,7 @@ impl<'e> Inferer<'e> {
                         Some(TypedAssignOp::Arith(op, ty))
                     }
                     Some(AssignOp::Bitwise(op)) => {
-                        if dst_ty != Type::Int {
+                        if dst_ty != Type::Numeric(NumericType::Int) {
                             return Err(TypeError("assign bitwise type mismatch"))?;
                         }
                         Some(TypedAssignOp::Bitwise(op))

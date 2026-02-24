@@ -6,7 +6,8 @@ use crate::{
     instr::{Cst, Instr, Reg, Val},
     ty::NumericType,
     typed_ast::{
-        TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedStmt, TypedVar, VarId,
+        TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedPrefixOp, TypedStmt,
+        TypedVar, VarId,
     },
     value::Value,
 };
@@ -87,29 +88,22 @@ impl<'f> Lowerer<'f> {
         self.next_label += 1;
         label
     }
-    fn lower_expr_val(&mut self, expr: &TypedExpr) -> Val {
-        match expr {
-            TypedExpr::Lit(lit) => {
-                let cst = match *lit {
-                    Lit::Int(value) => self.get_const(Value::from_int(value)),
-                    Lit::Float(value) => self.get_const(Value::from_float(value)),
-                    Lit::Bool(value) => self.get_const(Value::from_bool(value)),
-                    Lit::Unit => self.get_const(Value::from_unit(())),
-                };
-                Val::Cst(cst)
-            }
-            TypedExpr::Var(var) => match var {
-                TypedVar::Local(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
-                TypedVar::Env(name) => {
-                    let fun = self.fresh_const();
-                    self.fun_ptrs.push((name.clone(), fun.0));
-                    Val::Cst(fun)
-                }
-            },
-            _ => {
-                let dst = self.alloc_reg();
-                self.lower_expr_dst(expr, dst);
-                Val::Reg(dst)
+    fn lower_expr_lit_val(&mut self, lit: &Lit) -> Val {
+        let cst = match *lit {
+            Lit::Int(value) => self.get_const(Value::from_int(value)),
+            Lit::Float(value) => self.get_const(Value::from_float(value)),
+            Lit::Bool(value) => self.get_const(Value::from_bool(value)),
+            Lit::Unit => self.get_const(Value::from_unit(())),
+        };
+        Val::Cst(cst)
+    }
+    fn lower_expr_var_val(&mut self, var: &TypedVar) -> Val {
+        match var {
+            TypedVar::Local(var) => Val::Reg(*self.vars.get(&var.id).unwrap()),
+            TypedVar::Env(name) => {
+                let fun = self.fresh_const();
+                self.fun_ptrs.push((name.clone(), fun.0));
+                Val::Cst(fun)
             }
         }
     }
@@ -270,62 +264,116 @@ impl<'f> Lowerer<'f> {
             BitwiseOp::ShiftRight => self.bytecode.instr().shr(dst, src1, src2),
         }
     }
+    fn lower_expr_array_dst(&mut self, elements: &Vec<TypedExpr>, dst: Reg) {
+        let element_start = self.stack_top;
+        for element in elements {
+            let element_reg = self.alloc_reg();
+            self.lower_expr_dst(element, element_reg);
+        }
+        self.bytecode
+            .instr()
+            .init_array(dst, element_start, elements.len() as u8);
+    }
+    fn lower_expr_index_dst(&mut self, array: &TypedExpr, index: &TypedExpr, dst: Reg) {
+        let array = self.lower_expr_val(array);
+        let index = self.lower_expr_val(index);
+        self.bytecode.instr().get_array(dst, array, index);
+    }
+    fn lower_expr_infix_dst(&mut self, left: &TypedExpr, op: TypedInfixOp, right: &TypedExpr, dst: Reg) {
+        match op {
+            TypedInfixOp::Arith(op, ty) => {
+                let src1 = self.lower_expr_val(left);
+                let src2 = self.lower_expr_val(right);
+                self.lower_infix_arith(op, ty, dst, src1, src2)
+            }
+            TypedInfixOp::Comp(op, ty) => {
+                let src1 = self.lower_expr_val(left);
+                let src2 = self.lower_expr_val(right);
+                self.lower_infix_comp(op, ty, dst, src1, src2)
+            }
+            TypedInfixOp::Equality(op) => {
+                let src1 = self.lower_expr_val(left);
+                let src2 = self.lower_expr_val(right);
+                self.lower_infix_equality(op, dst, src1, src2);
+            }
+            TypedInfixOp::Logical(op) => self.lower_infix_logical(op, dst, left, right),
+            TypedInfixOp::Bitwise(op) => {
+                let src1 = self.lower_expr_val(left);
+                let src2 = self.lower_expr_val(right);
+                self.lower_infix_bitwise(op, dst, src1, src2);
+            }
+        }
+    }
+    fn lower_expr_prefix_dst(&mut self, op: TypedPrefixOp, expr: &TypedExpr, dst: Reg) {
+        match op {
+            TypedPrefixOp::Negative(NumericType::Int) => {
+                let val = self.lower_expr_val(expr);
+                let zero = self.get_const(Value::from_int(0));
+                self.bytecode.instr().isub(dst, Val::Cst(zero), val);
+            }
+            TypedPrefixOp::Negative(NumericType::Float) => {
+                let val = self.lower_expr_val(expr);
+                let zero = self.get_const(Value::from_float(0.0));
+                self.bytecode.instr().fsub(dst, Val::Cst(zero), val);
+            }
+            TypedPrefixOp::Positive(_) => self.lower_expr_dst(expr, dst),
+            TypedPrefixOp::BitwiseNot => {
+                let val = self.lower_expr_val(expr);
+                let all_ones = self.get_const(Value::from_int(!0));
+                self.bytecode.instr().xor(dst, Val::Cst(all_ones), val);
+            }
+            TypedPrefixOp::LogicalNot => {
+                let val = self.lower_expr_val(expr);
+                let false_ = self.get_const(Value::from_bool(false));
+                self.bytecode.instr().seq(dst, val, Val::Cst(false_));
+            }
+        }
+    }
+    fn lower_expr_call_dst(&mut self, fun: &TypedExpr, args: &[TypedExpr], dst: Reg) {
+        let fun = self.lower_expr_val(fun);
+        let arg_start = self.stack_top;
+        self.enter_stack_frame();
+        for arg in args {
+            let arg_reg = self.alloc_reg();
+            self.lower_expr_dst(arg, arg_reg);
+        }
+        self.bytecode.instr().call(dst, fun, arg_start);
+        self.exit_stack_frame();
+    }
+    fn dst_to_val(&mut self, f: impl Fn(&mut Lowerer<'f>, Reg)) -> Val {
+        let dst = self.alloc_reg();
+        f(self, dst);
+        Val::Reg(dst)
+    }
+    fn val_to_dst(&mut self, f: impl Fn(&mut Lowerer<'f>) -> Val, dst: Reg) {
+        let src = f(self);
+        self.bytecode.instr().mov(dst, src);
+    }
+    fn lower_expr_val(&mut self, expr: &TypedExpr) -> Val {
+        match expr {
+            TypedExpr::Lit(lit) => self.lower_expr_lit_val(lit),
+            TypedExpr::Var(var) => self.lower_expr_var_val(var),
+            TypedExpr::Call { fun, args } => self.dst_to_val(|self_, dst| self_.lower_expr_call_dst(fun, args, dst)),
+            TypedExpr::Array(elements) => self.dst_to_val(|self_, dst| self_.lower_expr_array_dst(elements, dst)),
+            TypedExpr::Index(array, index) => {
+                self.dst_to_val(|self_, dst| self_.lower_expr_index_dst(array, index, dst))
+            }
+            TypedExpr::Prefix(op, expr) => self.dst_to_val(|self_, dst| self_.lower_expr_prefix_dst(*op, expr, dst)),
+            TypedExpr::Infix { left, right, op } => {
+                self.dst_to_val(|self_, dst| self_.lower_expr_infix_dst(left, *op, right, dst))
+            }
+        }
+    }
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         self.enter_stack_frame();
         match expr {
-            TypedExpr::Array(elements) => {
-                let element_start = self.stack_top;
-                for element in elements {
-                    let element_reg = self.alloc_reg();
-                    self.lower_expr_dst(element, element_reg);
-                }
-                self.bytecode
-                    .instr()
-                    .init_array(dst, element_start, elements.len() as u8);
-            }
-            TypedExpr::Index(array, index) => {
-                let array = self.lower_expr_val(array);
-                let index = self.lower_expr_val(index);
-                self.bytecode.instr().get_array(dst, array, index);
-            }
-            TypedExpr::Infix { left, right, op } => match *op {
-                TypedInfixOp::Arith(op, ty) => {
-                    let src1 = self.lower_expr_val(left);
-                    let src2 = self.lower_expr_val(right);
-                    self.lower_infix_arith(op, ty, dst, src1, src2)
-                }
-                TypedInfixOp::Comp(op, ty) => {
-                    let src1 = self.lower_expr_val(left);
-                    let src2 = self.lower_expr_val(right);
-                    self.lower_infix_comp(op, ty, dst, src1, src2)
-                }
-                TypedInfixOp::Equality(op) => {
-                    let src1 = self.lower_expr_val(left);
-                    let src2 = self.lower_expr_val(right);
-                    self.lower_infix_equality(op, dst, src1, src2);
-                }
-                TypedInfixOp::Logical(op) => self.lower_infix_logical(op, dst, left, right),
-                TypedInfixOp::Bitwise(op) => {
-                    let src1 = self.lower_expr_val(left);
-                    let src2 = self.lower_expr_val(right);
-                    self.lower_infix_bitwise(op, dst, src1, src2);
-                }
-            },
-            TypedExpr::Call { fun, args } => {
-                let fun = self.lower_expr_val(fun);
-                let arg_start = self.stack_top;
-                self.enter_stack_frame();
-                for arg in args {
-                    let arg_reg = self.alloc_reg();
-                    self.lower_expr_dst(arg, arg_reg);
-                }
-                self.bytecode.instr().call(dst, fun, arg_start);
-                self.exit_stack_frame();
-            }
-            _ => {
-                let src = self.lower_expr_val(expr);
-                self.bytecode.instr().mov(dst, src);
-            }
+            TypedExpr::Array(elements) => self.lower_expr_array_dst(elements, dst),
+            TypedExpr::Index(array, index) => self.lower_expr_index_dst(array, index, dst),
+            TypedExpr::Infix { left, right, op } => self.lower_expr_infix_dst(left, *op, right, dst),
+            TypedExpr::Prefix(op, expr) => self.lower_expr_prefix_dst(*op, expr, dst),
+            TypedExpr::Call { fun, args } => self.lower_expr_call_dst(fun, args, dst),
+            TypedExpr::Lit(lit) => self.val_to_dst(|self_| self_.lower_expr_lit_val(lit), dst),
+            TypedExpr::Var(var) => self.val_to_dst(|self_| self_.lower_expr_var_val(var), dst),
         }
         self.exit_stack_frame();
     }

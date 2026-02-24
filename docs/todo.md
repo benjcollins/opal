@@ -11,7 +11,6 @@
 - String interner should probably be syncable. HARD
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
-- Unary ops. EASY
 - Break and continue statements. MEDIUM
 - Tree sitter grammar. HARD
 - Create arrays with default element and size. MEDIUM
@@ -21,13 +20,14 @@
 
 # IN DEV
 
+- Unary ops. EASY
 
 # DONE
 
 - Bitwise operators. EASY
-- Use strict provenance API
+- Use strict provenance API. MEDIUM
 - Write element to array. HARD
-- Use arrays in native functions
+- Use arrays in native functions. HARD
 - Read element from array. HARD
 - Create arrays with list of elements. HARD
 - Diverge checks MEDIUM

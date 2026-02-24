@@ -120,6 +120,14 @@ fun test_branch() {
     }
 }
 
+fun test_prefix_ops() {
+    assert(!false);
+    assert(~5 == -6);
+    assert(+5 == 5);
+    assert(3.0 - 5.0 == -2.0);
+    assert(3 - 5 == -2);
+}
+
 fun test_unit() {
     ();
 }

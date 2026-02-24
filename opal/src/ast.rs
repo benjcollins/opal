@@ -40,6 +40,7 @@ pub enum Expr {
     Var(VarUse),
     Array(Vec<Expr>),
     Index(Box<Expr>, Box<Expr>),
+    Prefix(PrefixOp, Box<Expr>),
     Infix {
         left: Box<Expr>,
         op: InfixOp,
@@ -54,6 +55,14 @@ pub enum InfixOp {
     Equality(EqualityOp),
     Logical(LogicalOp),
     Bitwise(BitwiseOp),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefixOp {
+    Negative,
+    Positive,
+    LogicalNot,
+    BitwiseNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -228,6 +228,26 @@ test_logical_op_invert:
   CALL r(4), c(9), 5;
   RET c(1);
 
+test_prefix_ops:
+  SEQ r(1), c(1), c(1);
+  CALL r(0), c(0), 1;
+  XOR r(2), c(4), c(3);
+  ISUB r(3), c(1), c(5);
+  SEQ r(1), r(2), r(3);
+  CALL r(0), c(2), 1;
+  MOV r(2), c(3);
+  SEQ r(1), r(2), c(3);
+  CALL r(0), c(6), 1;
+  FSUB r(2), c(8), c(9);
+  FSUB r(3), c(1), c(10);
+  SEQ r(1), r(2), r(3);
+  CALL r(0), c(7), 1;
+  ISUB r(2), c(12), c(3);
+  ISUB r(3), c(1), c(13);
+  SEQ r(1), r(2), r(3);
+  CALL r(0), c(11), 1;
+  RET c(1);
+
 test_unit:
   RET c(0);
 

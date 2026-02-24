@@ -79,6 +79,8 @@ pub enum Symbol {
     DoubleGreater,
     DoubleLessEquals,
     DoubleGreaterEquals,
+    Tilde,
+    Bang,
 }
 
 impl Symbol {
@@ -124,6 +126,8 @@ impl Symbol {
             Symbol::DoubleGreater => ">>",
             Symbol::DoubleLessEquals => "<<=",
             Symbol::DoubleGreaterEquals => ">>=",
+            Symbol::Tilde => "~",
+            Symbol::Bang => "!",
         }
     }
 }

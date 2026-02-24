@@ -22,7 +22,7 @@ pub enum TypedVar {
     Env(Ident),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum TypedInfixOp {
     Arith(ArithOp, NumericType),
     Comp(CompOp, NumericType),
@@ -37,6 +37,14 @@ pub enum TypedAssignOp {
     Bitwise(BitwiseOp),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TypedPrefixOp {
+    Negative(NumericType),
+    Positive(NumericType),
+    BitwiseNot,
+    LogicalNot,
+}
+
 #[derive(Debug, Clone)]
 pub enum TypedExpr {
     Lit(Lit),
@@ -47,6 +55,7 @@ pub enum TypedExpr {
     Array(Vec<TypedExpr>),
     Index(Box<TypedExpr>, Box<TypedExpr>),
     Var(TypedVar),
+    Prefix(TypedPrefixOp, Box<TypedExpr>),
     Infix {
         left: Box<TypedExpr>,
         right: Box<TypedExpr>,

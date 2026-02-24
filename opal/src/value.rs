@@ -3,7 +3,7 @@ use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 use crate::{
     heap::{ArrayObject, HeapObject, ObjectHeader},
     lower::CompiledFun,
-    ty::BorrowedType,
+    ty::{BorrowedType, NumericType},
     vm::{Fun, RuntimeError},
 };
 
@@ -51,8 +51,8 @@ impl<'h, T: ValueConv<'h>> ValueConv<'h> for Array<'h, T> {
     }
 }
 
-impl<'h> ValueConv<'h> for i64 {
-    const TYPE: BorrowedType<'static> = BorrowedType::Int;
+impl<'h> ValueConv<'h> for Int {
+    const TYPE: BorrowedType<'static> = BorrowedType::Numeric(NumericType::Int);
     fn into_value(self) -> Value<'h> {
         Value::from_int(self)
     }
@@ -71,8 +71,8 @@ impl<'h> ValueConv<'h> for bool {
     }
 }
 
-impl<'h> ValueConv<'h> for f64 {
-    const TYPE: BorrowedType<'static> = BorrowedType::Float;
+impl<'h> ValueConv<'h> for Float {
+    const TYPE: BorrowedType<'static> = BorrowedType::Numeric(NumericType::Float);
     fn into_value(self) -> Value<'h> {
         Value::from_float(self)
     }
