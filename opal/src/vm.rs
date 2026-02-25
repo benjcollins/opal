@@ -200,13 +200,9 @@ impl<'f> VM<'f> {
                 let src = self.read_value(instr.src1());
                 self.ret(src)
             }
-            Op::INIT_ARRAY => {
-                let elements = &self.value_stack[self.value_stack_base + instr.args_start() as usize..]
-                    [..instr.args_count() as usize];
-                let array_object = self.heap.alloc_array(elements.len() as u64);
-                for (index, element) in elements.iter().copied().enumerate() {
-                    array_object.set(index as u64, element);
-                }
+            Op::NEW_ARRAY => {
+                let length = self.read_value(instr.src1());
+                let array_object = self.heap.alloc_array(length.as_int() as u64);
                 self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)

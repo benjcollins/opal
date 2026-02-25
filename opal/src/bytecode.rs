@@ -142,11 +142,10 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.instr.set_src1(src);
     }
 
-    pub fn init_array(mut self, dst: Reg, args_start: u8, args_count: u8) {
-        self.instr.set_op(Op::INIT_ARRAY);
+    pub fn new_array(mut self, dst: Reg, length: Val) {
+        self.instr.set_op(Op::NEW_ARRAY);
         self.instr.set_dst(dst);
-        self.instr.set_args_start(args_start);
-        self.instr.set_args_count(args_count);
+        self.instr.set_src1(length);
     }
 
     pub fn get_array(mut self, dst: Reg, array: Val, index: Val) {

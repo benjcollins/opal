@@ -264,15 +264,33 @@ impl<'f> Lowerer<'f> {
             BitwiseOp::ShiftRight => self.bytecode.instr().shr(dst, src1, src2),
         }
     }
-    fn lower_expr_array_dst(&mut self, elements: &Vec<TypedExpr>, dst: Reg) {
-        let element_start = self.stack_top;
-        for element in elements {
-            let element_reg = self.alloc_reg();
-            self.lower_expr_dst(element, element_reg);
+    fn lower_expr_array_elements_dst(&mut self, elements: &Vec<TypedExpr>, dst: Reg) {
+        let length = self.get_const(Value::from_int(elements.len() as i64));
+        self.bytecode.instr().new_array(dst, Val::Cst(length));
+        for (index, element) in elements.iter().enumerate() {
+            let val = self.lower_expr_val(element);
+            let index = self.get_const(Value::from_int(index as i64));
+            self.bytecode.instr().set_array(dst, val, Val::Cst(index));
         }
-        self.bytecode
-            .instr()
-            .init_array(dst, element_start, elements.len() as u8);
+    }
+    fn lower_expr_array_default_length_dst(&mut self, default: &TypedExpr, length: &TypedExpr, dst: Reg) {
+        let length = self.lower_expr_val(length);
+        let default = self.lower_expr_val(default);
+        self.bytecode.instr().new_array(dst, length);
+        let index = self.alloc_reg();
+        let one = self.get_const(Value::from_int(1));
+
+        let cond = self.new_label();
+        let body = self.new_label();
+        let exit = self.new_label();
+
+        self.bytecode.label(cond);
+        self.bytecode.instr().ibge(Val::Reg(index), length, exit);
+        self.bytecode.label(body);
+        self.bytecode.instr().set_array(dst, default, Val::Reg(index));
+        self.bytecode.instr().iadd(index, Val::Reg(index), Val::Cst(one));
+        self.bytecode.instr().jmp(cond);
+        self.bytecode.label(exit);
     }
     fn lower_expr_index_dst(&mut self, array: &TypedExpr, index: &TypedExpr, dst: Reg) {
         let array = self.lower_expr_val(array);
@@ -354,7 +372,12 @@ impl<'f> Lowerer<'f> {
             TypedExpr::Lit(lit) => self.lower_expr_lit_val(lit),
             TypedExpr::Var(var) => self.lower_expr_var_val(var),
             TypedExpr::Call { fun, args } => self.dst_to_val(|self_, dst| self_.lower_expr_call_dst(fun, args, dst)),
-            TypedExpr::Array(elements) => self.dst_to_val(|self_, dst| self_.lower_expr_array_dst(elements, dst)),
+            TypedExpr::ArrayElements(elements) => {
+                self.dst_to_val(|self_, dst| self_.lower_expr_array_elements_dst(elements, dst))
+            }
+            TypedExpr::ArrayDefaultLength(default, length) => {
+                self.dst_to_val(|self_, dst| self_.lower_expr_array_default_length_dst(default, length, dst))
+            }
             TypedExpr::Index(array, index) => {
                 self.dst_to_val(|self_, dst| self_.lower_expr_index_dst(array, index, dst))
             }
@@ -367,7 +390,10 @@ impl<'f> Lowerer<'f> {
     fn lower_expr_dst(&mut self, expr: &TypedExpr, dst: Reg) {
         self.enter_stack_frame();
         match expr {
-            TypedExpr::Array(elements) => self.lower_expr_array_dst(elements, dst),
+            TypedExpr::ArrayElements(elements) => self.lower_expr_array_elements_dst(elements, dst),
+            TypedExpr::ArrayDefaultLength(default, length) => {
+                self.lower_expr_array_default_length_dst(default, length, dst)
+            }
             TypedExpr::Index(array, index) => self.lower_expr_index_dst(array, index, dst),
             TypedExpr::Infix { left, right, op } => self.lower_expr_infix_dst(left, *op, right, dst),
             TypedExpr::Prefix(op, expr) => self.lower_expr_prefix_dst(*op, expr, dst),

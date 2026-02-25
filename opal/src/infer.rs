@@ -70,7 +70,7 @@ impl<'e> Inferer<'e> {
                 let ty = infer_lit(lit);
                 (typed_expr, ty)
             }
-            Expr::Array(elements) => {
+            Expr::ArrayElements(elements) => {
                 let mut typed_elements = vec![];
                 let mut element_ty = None;
                 for element in elements {
@@ -81,8 +81,18 @@ impl<'e> Inferer<'e> {
                     };
                     typed_elements.push(typed_element);
                 }
-                let typed_expr = TypedExpr::Array(typed_elements);
+                let typed_expr = TypedExpr::ArrayElements(typed_elements);
                 (typed_expr, Type::Array(Box::new(element_ty.unwrap_or(Type::Void))))
+            }
+            Expr::ArrayDefaultLength(default, length) => {
+                let (typed_default, default_ty) = self.infer_expr(default)?;
+                let (typed_length, length_ty) = self.infer_expr(length)?;
+                if length_ty != Type::Numeric(NumericType::Int) {
+                    return Err(TypeError("length type must be of int"));
+                }
+                let typed_expr = TypedExpr::ArrayDefaultLength(Box::new(typed_default), Box::new(typed_length));
+                let ty = Type::Array(Box::new(default_ty));
+                (typed_expr, ty)
             }
             Expr::Call(fun, args) => {
                 let (typed_fun, fun_ty) = self.infer_expr(fun)?;

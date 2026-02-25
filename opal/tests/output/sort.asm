@@ -41,62 +41,62 @@ sort:
   RET c(0);
 
 test_array_diff_len:
-  MOV r(2), c(1);
-  MOV r(3), c(2);
-  INIT_ARRAY r(1), 2, 2;
-  MOV r(3), c(1);
-  MOV r(4), c(2);
-  MOV r(5), c(3);
-  INIT_ARRAY r(2), 3, 3;
+  NEW_ARRAY r(1), c(1);
+  SET_ARRAY r(1), c(2), c(3);
+  SET_ARRAY r(1), c(1), c(2);
+  NEW_ARRAY r(2), c(4);
+  SET_ARRAY r(2), c(2), c(3);
+  SET_ARRAY r(2), c(1), c(2);
+  SET_ARRAY r(2), c(4), c(1);
   CALL r(0), c(0), 1;
-  BEQ r(0), c(4), 2;
+  BEQ r(0), c(3), 2;
   CALL r(1), c(5), 2;
-  RET c(4);
+  RET c(3);
 
 test_array_eq:
-  MOV r(3), c(2);
-  MOV r(4), c(3);
-  MOV r(5), c(4);
-  INIT_ARRAY r(2), 3, 3;
-  MOV r(4), c(2);
-  MOV r(5), c(3);
-  MOV r(6), c(4);
-  INIT_ARRAY r(3), 4, 3;
+  NEW_ARRAY r(2), c(2);
+  SET_ARRAY r(2), c(3), c(4);
+  SET_ARRAY r(2), c(5), c(3);
+  SET_ARRAY r(2), c(2), c(5);
+  NEW_ARRAY r(3), c(2);
+  SET_ARRAY r(3), c(3), c(4);
+  SET_ARRAY r(3), c(5), c(3);
+  SET_ARRAY r(3), c(2), c(5);
   CALL r(1), c(1), 2;
   CALL r(0), c(0), 1;
-  RET c(5);
+  RET c(4);
 
 test_array_not_eq:
-  MOV r(2), c(1);
-  MOV r(3), c(2);
-  MOV r(4), c(3);
-  INIT_ARRAY r(1), 2, 3;
-  MOV r(3), c(1);
-  MOV r(4), c(2);
-  MOV r(5), c(4);
-  INIT_ARRAY r(2), 3, 3;
+  NEW_ARRAY r(1), c(1);
+  SET_ARRAY r(1), c(2), c(3);
+  SET_ARRAY r(1), c(4), c(2);
+  SET_ARRAY r(1), c(5), c(4);
+  NEW_ARRAY r(2), c(1);
+  SET_ARRAY r(2), c(2), c(3);
+  SET_ARRAY r(2), c(4), c(2);
+  SET_ARRAY r(2), c(1), c(4);
   CALL r(0), c(0), 1;
-  BEQ r(0), c(5), 2;
+  BEQ r(0), c(3), 2;
   CALL r(1), c(6), 2;
-  RET c(5);
+  RET c(3);
 
 test_sort:
-  MOV r(1), c(0);
-  MOV r(2), c(1);
-  MOV r(3), c(2);
-  MOV r(4), c(3);
-  MOV r(5), c(4);
-  INIT_ARRAY r(0), 1, 5;
+  NEW_ARRAY r(0), c(0);
+  SET_ARRAY r(0), c(1), c(2);
+  SET_ARRAY r(0), c(3), c(4);
+  SET_ARRAY r(0), c(5), c(6);
+  SET_ARRAY r(0), c(7), c(3);
+  SET_ARRAY r(0), c(4), c(5);
   MOV r(2), r(0);
-  CALL r(1), c(5), 2;
+  CALL r(1), c(8), 2;
   MOV r(3), r(0);
-  MOV r(5), c(4);
-  MOV r(6), c(1);
-  MOV r(7), c(2);
-  MOV r(8), c(3);
-  MOV r(9), c(0);
-  INIT_ARRAY r(4), 5, 5;
-  CALL r(2), c(7), 3;
-  CALL r(1), c(6), 2;
-  RET c(8);
+  NEW_ARRAY r(4), c(0);
+  SET_ARRAY r(4), c(4), c(2);
+  SET_ARRAY r(4), c(3), c(4);
+  SET_ARRAY r(4), c(5), c(6);
+  SET_ARRAY r(4), c(7), c(3);
+  SET_ARRAY r(4), c(1), c(5);
+  CALL r(2), c(10), 3;
+  CALL r(1), c(9), 2;
+  RET c(2);
 

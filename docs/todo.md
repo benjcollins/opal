@@ -13,17 +13,17 @@
 - Span information in AST nodes. MEDIUM
 - Break and continue statements. MEDIUM
 - Tree sitter grammar. HARD
-- Create arrays with default element and size. MEDIUM
 - Garbage collection
 - Length of array as built in operation
 - Array equality
 
 # IN DEV
 
-- Unary ops. EASY
 
 # DONE
 
+- Create arrays with default element and size. MEDIUM
+- Unary ops. EASY
 - Bitwise operators. EASY
 - Use strict provenance API. MEDIUM
 - Write element to array. HARD

@@ -224,8 +224,26 @@ impl<'s, 'p> Parser<'s, 'p> {
             return Ok(Expr::Lit(Lit::Float(value)));
         }
         if self.advance(Symbol::OpenBracket) {
-            let elements = self.parse_separated(Symbol::Comma, Symbol::CloseBracket, |self_| self_.parse_expr(0))?;
-            return Ok(Expr::Array(elements));
+            if self.advance(Symbol::CloseBracket) {
+                return Ok(Expr::ArrayElements(vec![]));
+            }
+            let first = self.parse_expr(0)?;
+            if self.advance(Symbol::Semicolon) {
+                let len = self.parse_expr(0)?;
+                self.expect(Symbol::CloseBracket)?;
+                return Ok(Expr::ArrayDefaultLength(Box::new(first), Box::new(len)));
+            } else if self.advance(Symbol::Comma) {
+                let mut elements = vec![first];
+                self.parse_separated_into(
+                    Symbol::Comma,
+                    Symbol::CloseBracket,
+                    |self_| self_.parse_expr(0),
+                    &mut elements,
+                )?;
+                return Ok(Expr::ArrayElements(elements));
+            } else {
+                return Err(self.error());
+            }
         }
         if self.advance(Symbol::OpenParen) {
             if self.advance(Symbol::CloseParen) {
@@ -370,13 +388,13 @@ impl<'s, 'p> Parser<'s, 'p> {
         })?;
         Ok(Block { stmts })
     }
-    pub fn parse_separated<T, SEP: TokenMatcher, TERM: TokenMatcher>(
+    pub fn parse_separated_into<T, SEP: TokenMatcher, TERM: TokenMatcher>(
         &mut self,
         sep: SEP,
         term: TERM,
         parse_fn: impl Fn(&mut Parser) -> Result<T, Recovered>,
-    ) -> Result<Vec<T>, Recovered> {
-        let mut vec = vec![];
+        vec: &mut Vec<T>,
+    ) -> Result<(), Recovered> {
         while !self.advance(term.clone()) {
             vec.push(parse_fn(self)?);
             if !self.advance(sep.clone()) {
@@ -384,6 +402,16 @@ impl<'s, 'p> Parser<'s, 'p> {
                 break;
             }
         }
+        Ok(())
+    }
+    pub fn parse_separated<T, SEP: TokenMatcher, TERM: TokenMatcher>(
+        &mut self,
+        sep: SEP,
+        term: TERM,
+        parse_fn: impl Fn(&mut Parser) -> Result<T, Recovered>,
+    ) -> Result<Vec<T>, Recovered> {
+        let mut vec = vec![];
+        self.parse_separated_into(sep, term, parse_fn, &mut vec)?;
         Ok(vec)
     }
     pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {

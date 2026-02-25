@@ -38,7 +38,8 @@ pub enum Expr {
     Call(Box<Expr>, Vec<Expr>),
     Paren(Box<Expr>),
     Var(VarUse),
-    Array(Vec<Expr>),
+    ArrayElements(Vec<Expr>),
+    ArrayDefaultLength(Box<Expr>, Box<Expr>),
     Index(Box<Expr>, Box<Expr>),
     Prefix(PrefixOp, Box<Expr>),
     Infix {
