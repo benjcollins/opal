@@ -267,6 +267,8 @@ impl<'e> Inferer<'e> {
                 let block = self.infer_block(block)?;
                 (TypedStmt::While { cond, block }, false)
             }
+            Stmt::Break => (TypedStmt::Break, true),
+            Stmt::Continue => (TypedStmt::Continue, true),
         })
     }
 

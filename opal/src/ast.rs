@@ -114,6 +114,8 @@ pub enum AssignOp {
 pub enum Stmt {
     Let { var: VarDef, ty: Option<Expr>, expr: Expr },
     Assign { dst: Expr, op: Option<AssignOp>, src: Expr },
+    Break,
+    Continue,
     Return(Option<Expr>),
     Expr(Expr),
     If(If),

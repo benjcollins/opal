@@ -11,7 +11,6 @@
 - String interner should probably be syncable. HARD
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
-- Break and continue statements. MEDIUM
 - Tree sitter grammar. HARD
 - Garbage collection
 - Length of array as built in operation
@@ -22,6 +21,7 @@
 
 # DONE
 
+- Break and continue statements. MEDIUM
 - Create arrays with default element and size. MEDIUM
 - Unary ops. EASY
 - Bitwise operators. EASY

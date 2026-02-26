@@ -35,6 +35,8 @@ pub enum Keyword {
     If,
     Else,
     While,
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash)]

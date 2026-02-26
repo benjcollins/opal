@@ -24,6 +24,13 @@ pub struct Lowerer<'f> {
     pub stack_frames: Vec<u8>,
     pub vars: HashMap<VarId, Reg>,
     pub fun_ptrs: Vec<(Ident, u8)>,
+    pub loop_stack: Vec<LoopLabels>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LoopLabels {
+    break_: Label,
+    continue_: Label,
 }
 
 #[derive(Debug)]
@@ -42,6 +49,7 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
         stack_frames: Vec::new(),
         vars: HashMap::new(),
         fun_ptrs: Vec::new(),
+        loop_stack: Vec::new(),
     };
     for param in &fun.params {
         let reg = lowerer.alloc_reg();
@@ -281,12 +289,10 @@ impl<'f> Lowerer<'f> {
         let one = self.get_const(Value::from_int(1));
 
         let cond = self.new_label();
-        let body = self.new_label();
         let exit = self.new_label();
 
         self.bytecode.label(cond);
         self.bytecode.instr().ibge(Val::Reg(index), length, exit);
-        self.bytecode.label(body);
         self.bytecode.instr().set_array(dst, default, Val::Reg(index));
         self.bytecode.instr().iadd(index, Val::Reg(index), Val::Cst(one));
         self.bytecode.instr().jmp(cond);
@@ -475,9 +481,22 @@ impl<'f> Lowerer<'f> {
 
                 self.bytecode.label(loop_start);
                 self.lower_expr_branch(cond, loop_exit, false);
+                self.loop_stack.push(LoopLabels {
+                    break_: loop_exit,
+                    continue_: loop_start,
+                });
                 self.lower_block(block);
+                self.loop_stack.pop();
                 self.bytecode.instr().jmp(loop_start);
                 self.bytecode.label(loop_exit);
+            }
+            TypedStmt::Break => {
+                let labels = self.loop_stack[self.loop_stack.len() - 1];
+                self.bytecode.instr().jmp(labels.break_);
+            }
+            TypedStmt::Continue => {
+                let labels = self.loop_stack[self.loop_stack.len() - 1];
+                self.bytecode.instr().jmp(labels.continue_);
             }
         }
     }

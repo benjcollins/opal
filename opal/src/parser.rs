@@ -355,6 +355,14 @@ impl<'s, 'p> Parser<'s, 'p> {
         if self.advance(Keyword::If) {
             return Ok(Stmt::If(self.parse_if()?));
         }
+        if self.advance(Keyword::Break) {
+            self.expect(Symbol::Semicolon)?;
+            return Ok(Stmt::Break);
+        }
+        if self.advance(Keyword::Continue) {
+            self.expect(Symbol::Semicolon)?;
+            return Ok(Stmt::Continue);
+        }
         if self.advance(Keyword::While) {
             self.expect(Symbol::OpenParen)?;
             let cond = self.parse_expr(0)?;

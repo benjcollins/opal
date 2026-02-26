@@ -102,19 +102,19 @@ impl<'h> ValueConv<'h> for Infallible {
 }
 
 #[cfg(target_pointer_width = "64")]
-type Int = i64;
+pub type Int = i64;
 #[cfg(target_pointer_width = "32")]
-type Int = i32;
+pub type Int = i32;
 
 #[cfg(target_pointer_width = "64")]
-type UInt = u64;
+pub type UInt = u64;
 #[cfg(target_pointer_width = "32")]
-type UInt = u32;
+pub type UInt = u32;
 
 #[cfg(target_pointer_width = "64")]
-type Float = f64;
+pub type Float = f64;
 #[cfg(target_pointer_width = "32")]
-type Float = f32;
+pub type Float = f32;
 
 const NATIVE_FUN_BIT: usize = 1;
 

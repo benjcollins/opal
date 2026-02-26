@@ -82,6 +82,8 @@ pub enum TypedStmt {
         cond: TypedExpr,
         block: TypedBlock,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone)]
