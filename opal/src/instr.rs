@@ -5,48 +5,48 @@ use strum::{EnumIs, FromRepr, IntoStaticStr};
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, FromRepr, IntoStaticStr)]
 pub enum Op {
-    MOV,
+    Mov,
 
-    IADD,
-    ISUB,
-    IMUL,
-    IDIV,
-    IMOD,
+    IAdd,
+    ISub,
+    IMul,
+    IDiv,
+    IMod,
 
-    AND,
-    OR,
-    XOR,
-    SHL,
-    SHR,
+    And,
+    Or,
+    XOr,
+    ShiftLeft,
+    ShiftRight,
 
-    FADD,
-    FSUB,
-    FMUL,
-    FDIV,
-    FMOD,
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+    FMod,
 
-    BEQ,
-    BNE,
-    IBLT,
-    IBLE,
-    FBLT,
-    FBLE,
+    BEq,
+    BNEq,
+    IBLt,
+    IBLte,
+    FBLt,
+    FBLte,
 
-    SEQ,
-    SNE,
-    ISLT,
-    ISLE,
-    FSLT,
-    FSLE,
+    SEq,
+    SNEq,
+    ISLt,
+    ISLte,
+    FSLt,
+    FSLte,
 
-    NEW_ARRAY,
-    GET_ARRAY,
-    SET_ARRAY,
+    ArrayInit,
+    ArraySet,
+    ArrayGet,
 
-    JMP,
+    Jump,
 
-    CALL,
-    RET,
+    Call,
+    Ret,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -161,33 +161,33 @@ impl fmt::Display for Instr {
         let op: &'static str = self.op().into();
         write!(f, "{}", op)?;
         match self.op() {
-            Op::MOV => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::IADD
-            | Op::ISUB
-            | Op::IMUL
-            | Op::IDIV
-            | Op::IMOD
-            | Op::FADD
-            | Op::FSUB
-            | Op::FMUL
-            | Op::FDIV
-            | Op::FMOD
-            | Op::AND
-            | Op::OR
-            | Op::XOR
-            | Op::SHL
-            | Op::SHR => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
-            Op::BEQ | Op::BNE | Op::IBLT | Op::IBLE | Op::FBLT | Op::FBLE => {
+            Op::Mov => write!(f, " {}, {}", self.dst(), self.src1()),
+            Op::IAdd
+            | Op::ISub
+            | Op::IMul
+            | Op::IDiv
+            | Op::IMod
+            | Op::FAdd
+            | Op::FSub
+            | Op::FMul
+            | Op::FDiv
+            | Op::FMod
+            | Op::And
+            | Op::Or
+            | Op::XOr
+            | Op::ShiftLeft
+            | Op::ShiftRight => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Op::BEq | Op::BNEq | Op::IBLt | Op::IBLte | Op::FBLt | Op::FBLte => {
                 write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
             }
-            Op::SEQ | Op::SNE | Op::ISLT | Op::ISLE | Op::FSLT | Op::FSLE => {
+            Op::SEq | Op::SNEq | Op::ISLt | Op::ISLte | Op::FSLt | Op::FSLte => {
                 write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
             }
-            Op::JMP => write!(f, " {}", self.jump_offset()),
-            Op::CALL => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
-            Op::RET => write!(f, " {}", self.src1()),
-            Op::NEW_ARRAY => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::GET_ARRAY | Op::SET_ARRAY => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Op::Jump => write!(f, " {}", self.jump_offset()),
+            Op::Call => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
+            Op::Ret => write!(f, " {}", self.src1()),
+            Op::ArrayInit => write!(f, " {}, {}", self.dst(), self.src1()),
+            Op::ArraySet | Op::ArrayGet => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
         }?;
         write!(f, ";")
     }

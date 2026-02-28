@@ -1,134 +1,110 @@
 use std::{
-    alloc::{Layout, alloc, dealloc},
-    cell::Cell,
+    cell::RefCell,
     marker::PhantomData,
+    ptr::{self, null_mut},
+    sync::atomic::AtomicU32,
 };
 
-use strum::{EnumIs, FromRepr};
+use elsa::FrozenMap;
+use libc::{MAP_ANONYMOUS, PROT_READ, PROT_WRITE, mmap};
 
-use crate::value::Value;
+use crate::{instr::Instr, value::Value};
 
-pub struct ObjectHeap {
-    ptr: *mut u8,
-    offset: Cell<usize>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct HeapObject<'h> {
-    pub ptr: *mut ObjectHeader,
-    pub phantom: PhantomData<&'h ()>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ObjectHeader(u64);
-
-#[derive(Debug, Clone, Copy)]
-pub struct ArrayObject<'h>(HeapObject<'h>);
-
-#[derive(FromRepr, EnumIs)]
-#[repr(u8)]
 enum Tag {
-    Bytes,
-    Record,
+    Fun,
     Array,
 }
 
-const HEAP_SIZE: usize = 1024 * 1024 * 1024;
+static HEAP_SIZE: usize = 64 * 1024 * 1024; // 64 MB
 
-impl<'h> HeapObject<'h> {
-    pub unsafe fn new(ptr: *mut ObjectHeader) -> HeapObject<'h> {
-        HeapObject {
-            ptr,
-            phantom: PhantomData,
-        }
-    }
-    fn header(&self) -> ObjectHeader {
-        unsafe { self.ptr.read() }
-    }
-    fn data_ptr(self) -> *mut u8 {
-        unsafe { self.ptr.add(1) }.cast()
-    }
-    pub fn as_array(&self) -> Option<ArrayObject<'h>> {
-        if self.header().tag().is_array() {
-            Some(ArrayObject(*self))
-        } else {
-            None
-        }
-    }
+pub struct Heap {
+    base: *mut u8,
+    offset: usize,
+    roots: FrozenMap<ObjectPtr, Box<AtomicU32>>,
 }
 
-impl<'h> ArrayObject<'h> {
-    pub fn len(self) -> u64 {
-        self.0.header().payload()
-    }
-    pub fn get(self, index: u64) -> Value<'h> {
-        let ptr: *mut Value<'h> = self.0.data_ptr().cast();
-        if index >= self.len() {
-            panic!()
-        }
-        unsafe { ptr.add(index as usize).read() }
-    }
-    pub fn set(self, index: u64, value: Value<'h>) {
-        let ptr: *mut Value<'h> = self.0.data_ptr().cast();
-        if index >= self.len() {
-            panic!()
-        }
-        unsafe { ptr.add(index as usize).write(value) }
-    }
-    pub fn heap_object(self) -> HeapObject<'h> {
-        self.0
-    }
+pub struct ObjectHeader(usize);
+
+pub struct ObjectHandle<'h, T> {
+    object: ObjectPtr,
+    ref_count: &'h AtomicU32,
+    phantom: PhantomData<T>,
 }
 
-impl ObjectHeader {
-    fn new(tag: Tag, payload: u64) -> ObjectHeader {
-        ObjectHeader(tag as u64 | payload << 4)
-    }
-    fn tag(self) -> Tag {
-        Tag::from_repr((self.0 & 0x3) as u8).unwrap()
-    }
-    fn payload(self) -> u64 {
-        self.0 >> 4
-    }
+pub struct ObjectRef<'a, T> {
+    ptr: ObjectPtr,
+    phantom: PhantomData<&'a T>,
 }
 
-fn align_down(ptr: usize, align: usize) -> usize {
-    ptr & !(align - 1)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ObjectPtr(*mut u8);
+
+pub struct ArrayObject;
+pub struct FunObject;
+
+trait HeapObject {
+    type Init<'a>;
+    const TAG: Tag;
+    fn size(init: &Self::Init<'_>) -> usize;
+    fn init(ptr: *mut u8, init: &Self::Init<'_>);
 }
 
-fn align_up(ptr: usize, align: usize) -> usize {
-    align_down(ptr + align - 1, align)
+#[repr(align(8))]
+struct FunObjectHeader {
+    instr_len: usize,
+    consts_len: usize,
 }
 
-impl ObjectHeap {
-    pub fn new() -> ObjectHeap {
+impl HeapObject for FunObject {
+    type Init<'a> = (&'a [Instr], &'a [Value]);
+    const TAG: Tag = Tag::Fun;
+
+    fn size((instrs, consts): &Self::Init<'_>) -> usize {
+        size_of::<FunObjectHeader>() + instrs.len() * size_of::<Instr>() + consts.len() * size_of::<Value>()
+    }
+    fn init(mut ptr: *mut u8, (instrs, consts): &Self::Init<'_>) {
         unsafe {
-            let ptr = alloc(Layout::array::<u64>(HEAP_SIZE).unwrap());
-            ObjectHeap {
-                ptr,
-                offset: Cell::new(0),
-            }
+            let fun_object_header = ptr.cast::<FunObjectHeader>();
+            fun_object_header.write(FunObjectHeader {
+                instr_len: instrs.len(),
+                consts_len: consts.len(),
+            });
+            ptr = ptr.add(size_of::<FunObjectHeader>());
+            ptr::copy(instrs.as_ptr() as *mut u8, ptr, size_of::<Instr>() * instrs.len());
+            ptr = ptr.add(size_of::<Instr>());
+            ptr::copy(instrs.as_ptr() as *mut u8, ptr, size_of::<Instr>() * instrs.len());
         }
-    }
-    fn alloc(&self, size: usize) -> *mut u8 {
-        let offset = self.offset.get();
-        self.offset.set(align_up(offset + size, 8));
-        unsafe { self.ptr.add(offset) }
-    }
-    pub fn alloc_array(&self, len: u64) -> ArrayObject<'_> {
-        let size = (1 + len as usize) * size_of::<u64>();
-        let ptr: *mut ObjectHeader = self.alloc(size).cast();
-        unsafe { ptr.write(ObjectHeader::new(Tag::Array, len)) };
-        let heap_object = HeapObject {
-            ptr,
-            phantom: PhantomData,
-        };
-        ArrayObject(heap_object)
     }
 }
 
-impl Drop for ObjectHeap {
-    fn drop(&mut self) {
-        unsafe { dealloc(self.ptr, Layout::array::<u64>(HEAP_SIZE).unwrap()) }
+impl<'a> ObjectRef<'a, ArrayObject> {
+    pub fn get(&self, index: usize) -> Value {
+        todo!()
+    }
+}
+
+impl<'a> ObjectRef<'a, FunObject> {
+    pub fn instrs(self) -> &'a [Instr] {
+        todo!()
+    }
+    pub fn consts(self) -> &'a [Value] {
+        todo!()
+    }
+}
+
+impl Heap {
+    pub fn new() -> Heap {
+        let base = unsafe { mmap(null_mut(), HEAP_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0) } as *mut u8;
+        Heap {
+            base,
+            offset: 0,
+            roots: FrozenMap::new(),
+        }
+    }
+    pub fn alloc_raw<T: HeapObject>(&self) -> ObjectPtr {
+        todo!()
+    }
+    pub fn alloc<T>(&self) -> ObjectHandle<'_, T> {
+        todo!()
     }
 }

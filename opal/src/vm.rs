@@ -3,21 +3,21 @@ use std::ops::Neg;
 use strum::EnumIs;
 
 use crate::{
-    heap::ObjectHeap,
+    heap::ObjectPtr,
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
     runtime::NativeFunSig,
     value::Value,
 };
 
-pub struct Call<'f> {
-    fun: &'f CompiledFun<'f>,
+pub struct Call {
+    fun: ObjectPtr,
     ip: usize,
 }
 
 pub struct VM<'f> {
-    pub call_stack: Vec<Call<'f>>,
-    pub value_stack: Vec<Value<'f>>,
+    pub call_stack: Vec<Call>,
+    pub value_stack: Vec<Value>,
 
     pub fun: &'f CompiledFun<'f>,
     pub value_stack_base: usize,
@@ -26,9 +26,9 @@ pub struct VM<'f> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Fun<'f> {
+pub enum Fun {
     Native(NativeFunSig),
-    Compiled(&'f CompiledFun<'f>),
+    Compiled(ObjectPtr),
 }
 
 #[derive(Debug)]
@@ -41,23 +41,23 @@ pub enum ControlFlow {
 }
 
 impl<'f> VM<'f> {
-    fn read_value(&self, val: Val) -> Value<'f> {
+    fn read_value(&self, val: Val) -> Value {
         match val {
             Val::Reg(reg) => self.read_reg(reg),
             Val::Cst(cst) => self.fun.consts[cst.0 as usize].get(),
         }
     }
-    fn read_reg(&self, reg: Reg) -> Value<'f> {
+    fn read_reg(&self, reg: Reg) -> Value {
         self.value_stack[self.value_stack_base + reg.0 as usize]
     }
-    fn write_reg(&mut self, reg: Reg, val: Value<'f>) {
+    fn write_reg(&mut self, reg: Reg, val: Value) {
         self.value_stack[self.value_stack_base + reg.0 as usize] = val;
     }
 
     fn execute_arith_instr(
         &mut self,
         instr: Instr,
-        op: impl Fn(Value<'f>, Value<'f>) -> Value<'f>,
+        op: impl Fn(Value, Value) -> Value,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -69,7 +69,7 @@ impl<'f> VM<'f> {
     fn execute_branch_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
+        cmp: impl Fn(Value, Value) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -88,7 +88,7 @@ impl<'f> VM<'f> {
     fn execute_set_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value<'f>, Value<'f>) -> bool,
+        cmp: impl Fn(Value, Value) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -97,7 +97,7 @@ impl<'f> VM<'f> {
         Ok(ControlFlow::Continue)
     }
 
-    fn ret(&mut self, value: Value<'f>) -> Result<ControlFlow, RuntimeError> {
+    fn ret(&mut self, value: Value) -> Result<ControlFlow, RuntimeError> {
         let Some(prev_call) = self.call_stack.pop() else {
             return Ok(ControlFlow::Break);
         };
@@ -112,62 +112,62 @@ impl<'f> VM<'f> {
     pub fn execute_next_instr(&mut self) -> Result<ControlFlow, RuntimeError> {
         let instr = self.fun.bytecode[self.ip];
 
-        fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
+        fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value, Value) -> Value {
             move |a, b| Value::from_int(op(a.as_int(), b.as_int()))
         }
 
-        fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value<'f>, Value<'f>) -> Value<'f> {
+        fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value, Value) -> Value {
             move |a, b| Value::from_float(op(a.as_float(), b.as_float()))
         }
 
-        fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
+        fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value, Value) -> bool {
             move |a, b| cmp(a.as_int(), b.as_int())
         }
 
-        fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'f>, Value<'f>) -> bool {
+        fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value, Value) -> bool {
             move |a, b| cmp(a.as_float(), b.as_float())
         }
 
         match instr.op() {
-            Op::MOV => {
+            Op::Mov => {
                 let src1 = self.read_value(instr.src1());
                 self.write_reg(instr.dst(), src1);
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
 
-            Op::IADD => self.execute_arith_instr(instr, int_op(|a, b| a + b)),
-            Op::ISUB => self.execute_arith_instr(instr, int_op(|a, b| a - b)),
-            Op::IMUL => self.execute_arith_instr(instr, int_op(|a, b| a * b)),
-            Op::IDIV => self.execute_arith_instr(instr, int_op(|a, b| a / b)),
-            Op::IMOD => self.execute_arith_instr(instr, int_op(|a, b| a % b)),
-            Op::AND => self.execute_arith_instr(instr, int_op(|a, b| a & b)),
-            Op::OR => self.execute_arith_instr(instr, int_op(|a, b| a | b)),
-            Op::XOR => self.execute_arith_instr(instr, int_op(|a, b| a ^ b)),
-            Op::SHL => self.execute_arith_instr(instr, int_op(|a, b| a << b)),
-            Op::SHR => self.execute_arith_instr(instr, int_op(|a, b| a >> b)),
+            Op::IAdd => self.execute_arith_instr(instr, int_op(|a, b| a + b)),
+            Op::ISub => self.execute_arith_instr(instr, int_op(|a, b| a - b)),
+            Op::IMul => self.execute_arith_instr(instr, int_op(|a, b| a * b)),
+            Op::IDiv => self.execute_arith_instr(instr, int_op(|a, b| a / b)),
+            Op::IMod => self.execute_arith_instr(instr, int_op(|a, b| a % b)),
+            Op::And => self.execute_arith_instr(instr, int_op(|a, b| a & b)),
+            Op::Or => self.execute_arith_instr(instr, int_op(|a, b| a | b)),
+            Op::XOr => self.execute_arith_instr(instr, int_op(|a, b| a ^ b)),
+            Op::ShiftLeft => self.execute_arith_instr(instr, int_op(|a, b| a << b)),
+            Op::ShiftRight => self.execute_arith_instr(instr, int_op(|a, b| a >> b)),
 
-            Op::FADD => self.execute_arith_instr(instr, float_op(|a, b| a + b)),
-            Op::FSUB => self.execute_arith_instr(instr, float_op(|a, b| a - b)),
-            Op::FMUL => self.execute_arith_instr(instr, float_op(|a, b| a * b)),
-            Op::FDIV => self.execute_arith_instr(instr, float_op(|a, b| a / b)),
-            Op::FMOD => self.execute_arith_instr(instr, float_op(|a, b| a % b)),
+            Op::FAdd => self.execute_arith_instr(instr, float_op(|a, b| a + b)),
+            Op::FSub => self.execute_arith_instr(instr, float_op(|a, b| a - b)),
+            Op::FMul => self.execute_arith_instr(instr, float_op(|a, b| a * b)),
+            Op::FDiv => self.execute_arith_instr(instr, float_op(|a, b| a / b)),
+            Op::FMod => self.execute_arith_instr(instr, float_op(|a, b| a % b)),
 
-            Op::BEQ => self.execute_branch_instr(instr, |a, b| a == b),
-            Op::BNE => self.execute_branch_instr(instr, |a, b| a != b),
-            Op::IBLT => self.execute_branch_instr(instr, int_cmp(|a, b| a < b)),
-            Op::IBLE => self.execute_branch_instr(instr, int_cmp(|a, b| a <= b)),
-            Op::FBLT => self.execute_branch_instr(instr, float_cmp(|a, b| a < b)),
-            Op::FBLE => self.execute_branch_instr(instr, float_cmp(|a, b| a <= b)),
+            Op::BEq => self.execute_branch_instr(instr, |a, b| a == b),
+            Op::BNEq => self.execute_branch_instr(instr, |a, b| a != b),
+            Op::IBLt => self.execute_branch_instr(instr, int_cmp(|a, b| a < b)),
+            Op::IBLte => self.execute_branch_instr(instr, int_cmp(|a, b| a <= b)),
+            Op::FBLt => self.execute_branch_instr(instr, float_cmp(|a, b| a < b)),
+            Op::FBLte => self.execute_branch_instr(instr, float_cmp(|a, b| a <= b)),
 
-            Op::SEQ => self.execute_set_instr(instr, |a, b| a == b),
-            Op::SNE => self.execute_set_instr(instr, |a, b| a != b),
-            Op::ISLT => self.execute_set_instr(instr, int_cmp(|a, b| a < b)),
-            Op::ISLE => self.execute_set_instr(instr, int_cmp(|a, b| a <= b)),
-            Op::FSLT => self.execute_set_instr(instr, float_cmp(|a, b| a < b)),
-            Op::FSLE => self.execute_set_instr(instr, float_cmp(|a, b| a <= b)),
+            Op::SEq => self.execute_set_instr(instr, |a, b| a == b),
+            Op::SNEq => self.execute_set_instr(instr, |a, b| a != b),
+            Op::ISLt => self.execute_set_instr(instr, int_cmp(|a, b| a < b)),
+            Op::ISLte => self.execute_set_instr(instr, int_cmp(|a, b| a <= b)),
+            Op::FSLt => self.execute_set_instr(instr, float_cmp(|a, b| a < b)),
+            Op::FSLte => self.execute_set_instr(instr, float_cmp(|a, b| a <= b)),
 
-            Op::JMP => {
+            Op::Jump => {
                 if instr.jump_offset().is_positive() {
                     self.ip += instr.jump_offset() as usize;
                 } else {
@@ -175,7 +175,7 @@ impl<'f> VM<'f> {
                 }
                 Ok(ControlFlow::Continue)
             }
-            Op::CALL => {
+            Op::Call => {
                 let fun = unsafe { self.read_value(instr.src1()).as_fun() };
                 match fun {
                     Fun::Native(fun) => {
@@ -196,18 +196,18 @@ impl<'f> VM<'f> {
                 }
                 Ok(ControlFlow::Continue)
             }
-            Op::RET => {
+            Op::Ret => {
                 let src = self.read_value(instr.src1());
                 self.ret(src)
             }
-            Op::NEW_ARRAY => {
+            Op::ArrayInit => {
                 let length = self.read_value(instr.src1());
                 let array_object = self.heap.alloc_array(length.as_int() as u64);
                 self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
-            Op::GET_ARRAY => {
+            Op::ArrayGet => {
                 let array = self.read_value(instr.src1());
                 let array_object = unsafe { array.as_object() }.as_array().unwrap();
                 let index = self.read_value(instr.src2());
@@ -215,7 +215,7 @@ impl<'f> VM<'f> {
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
-            Op::SET_ARRAY => {
+            Op::ArraySet => {
                 let array = self.read_reg(instr.dst());
                 let array_object = unsafe { array.as_object() }.as_array().unwrap();
                 let value = self.read_value(instr.src1());

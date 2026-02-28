@@ -121,84 +121,84 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.bytecode_buffer
             .jumps
             .push((self.bytecode_buffer.buffer.len(), label));
-        self.instr.set_op(Op::JMP);
+        self.instr.set_op(Op::Jump);
     }
 
     pub fn mov(mut self, dst: Reg, src: Val) {
-        self.instr.set_op(Op::MOV);
+        self.instr.set_op(Op::Mov);
         self.instr.set_dst(dst);
         self.instr.set_src1(src);
     }
 
     pub fn call(mut self, dst: Reg, fun: Val, args_start: u8) {
-        self.instr.set_op(Op::CALL);
+        self.instr.set_op(Op::Call);
         self.instr.set_dst(dst);
         self.instr.set_src1(fun);
         self.instr.set_args_start(args_start);
     }
 
     pub fn ret(mut self, src: Val) {
-        self.instr.set_op(Op::RET);
+        self.instr.set_op(Op::Ret);
         self.instr.set_src1(src);
     }
 
-    pub fn new_array(mut self, dst: Reg, length: Val) {
-        self.instr.set_op(Op::NEW_ARRAY);
+    pub fn array_new(mut self, dst: Reg, length: Val) {
+        self.instr.set_op(Op::ArrayInit);
         self.instr.set_dst(dst);
         self.instr.set_src1(length);
     }
 
-    pub fn get_array(mut self, dst: Reg, array: Val, index: Val) {
-        self.instr.set_op(Op::GET_ARRAY);
+    pub fn array_get(mut self, dst: Reg, array: Val, index: Val) {
+        self.instr.set_op(Op::ArrayGet);
         self.instr.set_dst(dst);
         self.instr.set_src1(array);
         self.instr.set_src2(index);
     }
 
-    pub fn set_array(mut self, array: Reg, value: Val, index: Val) {
-        self.instr.set_op(Op::SET_ARRAY);
+    pub fn array_set(mut self, array: Reg, value: Val, index: Val) {
+        self.instr.set_op(Op::ArraySet);
         self.instr.set_dst(array);
         self.instr.set_src1(value);
         self.instr.set_src2(index);
     }
 
-    define_arith_instr!(iadd, IADD);
-    define_arith_instr!(isub, ISUB);
-    define_arith_instr!(imul, IMUL);
-    define_arith_instr!(idiv, IDIV);
-    define_arith_instr!(imod, IMOD);
+    define_arith_instr!(iadd, IAdd);
+    define_arith_instr!(isub, ISub);
+    define_arith_instr!(imul, IMul);
+    define_arith_instr!(idiv, IDiv);
+    define_arith_instr!(imod, IMod);
 
-    define_arith_instr!(fadd, FADD);
-    define_arith_instr!(fsub, FSUB);
-    define_arith_instr!(fmul, FMUL);
-    define_arith_instr!(fdiv, FDIV);
-    define_arith_instr!(fmod, FMOD);
+    define_arith_instr!(fadd, FAdd);
+    define_arith_instr!(fsub, FSub);
+    define_arith_instr!(fmul, FMul);
+    define_arith_instr!(fdiv, FDiv);
+    define_arith_instr!(fmod, FMod);
 
-    define_arith_instr!(and, AND);
-    define_arith_instr!(or, OR);
-    define_arith_instr!(xor, XOR);
-    define_arith_instr!(shl, SHL);
-    define_arith_instr!(shr, SHR);
+    define_arith_instr!(and, And);
+    define_arith_instr!(or, Or);
+    define_arith_instr!(xor, XOr);
+    define_arith_instr!(shl, ShiftLeft);
+    define_arith_instr!(shr, ShiftRight);
 
-    define_branch_instr!(beq, BEQ);
-    define_branch_instr!(bne, BNE);
-    define_branch_instr!(iblt, IBLT);
-    define_branch_instr!(ible, IBLE);
-    define_branch_instr!(fblt, FBLT);
-    define_branch_instr!(fble, FBLE);
-    define_branch_instr_rev!(ibgt, IBLT);
-    define_branch_instr_rev!(ibge, IBLE);
-    define_branch_instr_rev!(fbgt, FBLT);
-    define_branch_instr_rev!(fbge, FBLE);
+    define_branch_instr!(beq, BEq);
+    define_branch_instr!(bneq, BNEq);
+    define_branch_instr!(iblt, IBLt);
+    define_branch_instr!(iblte, IBLte);
+    define_branch_instr!(fblt, FBLt);
+    define_branch_instr!(fblte, FBLte);
+    define_branch_instr_rev!(ibgt, IBLt);
+    define_branch_instr_rev!(ibgte, IBLte);
+    define_branch_instr_rev!(fbgt, FBLt);
+    define_branch_instr_rev!(fbgte, FBLte);
 
-    define_set_instr!(seq, SEQ);
-    define_set_instr!(sne, SNE);
-    define_set_instr!(islt, ISLT);
-    define_set_instr!(isle, ISLE);
-    define_set_instr!(fslt, FSLT);
-    define_set_instr!(fsle, FSLE);
-    define_set_instr_rev!(isgt, ISLT);
-    define_set_instr_rev!(isge, ISLE);
-    define_set_instr_rev!(fsgt, FSLT);
-    define_set_instr_rev!(fsge, FSLE);
+    define_set_instr!(seq, SEq);
+    define_set_instr!(sneq, SNEq);
+    define_set_instr!(islt, ISLt);
+    define_set_instr!(islte, ISLte);
+    define_set_instr!(fslt, FSLt);
+    define_set_instr!(fslte, FSLte);
+    define_set_instr_rev!(isgt, ISLt);
+    define_set_instr_rev!(isgte, ISLte);
+    define_set_instr_rev!(fsgt, FSLt);
+    define_set_instr_rev!(fsgte, FSLte);
 }

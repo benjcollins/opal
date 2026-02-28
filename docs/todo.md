@@ -15,6 +15,7 @@
 - Garbage collection
 - Length of array as built in operation
 - Array equality
+- Strings
 
 # IN DEV
 

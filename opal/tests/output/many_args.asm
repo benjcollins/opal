@@ -1,17 +1,17 @@
 many_args:
-  SEQ r(4), r(0), c(1);
-  CALL r(3), c(0), 4;
-  SEQ r(4), r(1), c(3);
-  CALL r(3), c(2), 4;
-  SEQ r(4), r(2), c(5);
-  CALL r(3), c(4), 4;
-  RET c(6);
+  SEq r(4), r(0), c(1);
+  Call r(3), c(0), 4;
+  SEq r(4), r(1), c(3);
+  Call r(3), c(2), 4;
+  SEq r(4), r(2), c(5);
+  Call r(3), c(4), 4;
+  Ret c(6);
 
 test_many_args:
-  IADD r(2), c(1), c(1);
-  IADD r(1), r(2), c(2);
-  MOV r(2), c(3);
-  MOV r(3), c(4);
-  CALL r(0), c(0), 1;
-  RET c(5);
+  IAdd r(2), c(1), c(1);
+  IAdd r(1), r(2), c(2);
+  Mov r(2), c(3);
+  Mov r(3), c(4);
+  Call r(0), c(0), 1;
+  Ret c(5);
 

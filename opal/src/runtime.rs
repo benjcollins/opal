@@ -4,7 +4,6 @@ use elsa::FrozenVec;
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::ObjectHeap,
     infer::infer_fun,
     lower::{CompiledFun, lower_fun},
     ty::{BorrowedType, FunSig, Type},

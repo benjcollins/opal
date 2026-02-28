@@ -15,10 +15,10 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Label(u32);
 
-pub struct Lowerer<'f> {
+pub struct Lowerer {
     pub bytecode: BytecodeBuffer<Label>,
-    pub consts: Vec<Value<'f>>,
-    pub consts_index: HashMap<Value<'f>, Cst>,
+    pub consts: Vec<Value>,
+    pub consts_index: HashMap<Value, Cst>,
     pub next_label: u32,
     pub stack_top: u8,
     pub stack_frames: Vec<u8>,
@@ -34,12 +34,12 @@ pub struct LoopLabels {
 }
 
 #[derive(Debug)]
-pub struct CompiledFun<'f> {
-    pub consts: Vec<Cell<Value<'f>>>,
+pub struct CompiledFun {
+    pub consts: Vec<Cell<Value>>,
     pub bytecode: Vec<Instr>,
 }
 
-pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
+pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),
@@ -67,8 +67,8 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun<'f>, Vec<(Ident, u8)>) {
     (fun, lowerer.fun_ptrs)
 }
 
-impl<'f> Lowerer<'f> {
-    fn get_const(&mut self, value: Value<'f>) -> Cst {
+impl Lowerer {
+    fn get_const(&mut self, value: Value) -> Cst {
         *self.consts_index.entry(value).or_insert_with(|| {
             let cst = Cst(self.consts.len() as u8);
             self.consts.push(value);
@@ -131,25 +131,25 @@ impl<'f> Lowerer<'f> {
                 self.bytecode.instr().iblt(src1, src2, label)
             }
             (CompOp::LessEqual, NumericType::Int, true) | (CompOp::Greater, NumericType::Int, false) => {
-                self.bytecode.instr().ible(src1, src2, label)
+                self.bytecode.instr().iblte(src1, src2, label)
             }
             (CompOp::Greater, NumericType::Int, true) | (CompOp::LessEqual, NumericType::Int, false) => {
                 self.bytecode.instr().ibgt(src1, src2, label)
             }
             (CompOp::GreaterEqual, NumericType::Int, true) | (CompOp::Less, NumericType::Int, false) => {
-                self.bytecode.instr().ibge(src1, src2, label)
+                self.bytecode.instr().ibgte(src1, src2, label)
             }
             (CompOp::Less, NumericType::Float, true) | (CompOp::GreaterEqual, NumericType::Float, false) => {
                 self.bytecode.instr().fblt(src1, src2, label)
             }
             (CompOp::LessEqual, NumericType::Float, true) | (CompOp::Greater, NumericType::Float, false) => {
-                self.bytecode.instr().fble(src1, src2, label)
+                self.bytecode.instr().fblte(src1, src2, label)
             }
             (CompOp::Greater, NumericType::Float, true) | (CompOp::LessEqual, NumericType::Float, false) => {
                 self.bytecode.instr().fbgt(src1, src2, label)
             }
             (CompOp::GreaterEqual, NumericType::Float, true) | (CompOp::Less, NumericType::Float, false) => {
-                self.bytecode.instr().fbge(src1, src2, label)
+                self.bytecode.instr().fbgte(src1, src2, label)
             }
         }
     }
@@ -165,7 +165,7 @@ impl<'f> Lowerer<'f> {
         let src2 = self.lower_expr_val(right);
         match (op, branch_if) {
             (EqualityOp::Equal, true) | (EqualityOp::NotEqual, false) => self.bytecode.instr().beq(src1, src2, label),
-            (EqualityOp::Equal, false) | (EqualityOp::NotEqual, true) => self.bytecode.instr().bne(src1, src2, label),
+            (EqualityOp::Equal, false) | (EqualityOp::NotEqual, true) => self.bytecode.instr().bneq(src1, src2, label),
         }
     }
     fn lower_expr_logical_branch(
@@ -233,20 +233,20 @@ impl<'f> Lowerer<'f> {
     fn lower_infix_comp(&mut self, op: CompOp, ty: NumericType, dst: Reg, src1: Val, src2: Val) {
         match (op, ty) {
             (CompOp::Less, NumericType::Int) => self.bytecode.instr().islt(dst, src1, src2),
-            (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().isle(dst, src1, src2),
+            (CompOp::LessEqual, NumericType::Int) => self.bytecode.instr().islte(dst, src1, src2),
             (CompOp::Greater, NumericType::Int) => self.bytecode.instr().isgt(dst, src1, src2),
-            (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().isge(dst, src1, src2),
+            (CompOp::GreaterEqual, NumericType::Int) => self.bytecode.instr().isgte(dst, src1, src2),
 
             (CompOp::Less, NumericType::Float) => self.bytecode.instr().fslt(dst, src1, src2),
-            (CompOp::LessEqual, NumericType::Float) => self.bytecode.instr().fsle(dst, src1, src2),
+            (CompOp::LessEqual, NumericType::Float) => self.bytecode.instr().fslte(dst, src1, src2),
             (CompOp::Greater, NumericType::Float) => self.bytecode.instr().fsgt(dst, src1, src2),
-            (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fsge(dst, src1, src2),
+            (CompOp::GreaterEqual, NumericType::Float) => self.bytecode.instr().fsgte(dst, src1, src2),
         }
     }
     fn lower_infix_equality(&mut self, op: EqualityOp, dst: Reg, src1: Val, src2: Val) {
         match op {
             EqualityOp::Equal => self.bytecode.instr().seq(dst, src1, src2),
-            EqualityOp::NotEqual => self.bytecode.instr().sne(dst, src1, src2),
+            EqualityOp::NotEqual => self.bytecode.instr().sneq(dst, src1, src2),
         }
     }
     fn lower_infix_logical(&mut self, op: LogicalOp, dst: Reg, left: &TypedExpr, right: &TypedExpr) {
@@ -274,17 +274,17 @@ impl<'f> Lowerer<'f> {
     }
     fn lower_expr_array_elements_dst(&mut self, elements: &Vec<TypedExpr>, dst: Reg) {
         let length = self.get_const(Value::from_int(elements.len() as i64));
-        self.bytecode.instr().new_array(dst, Val::Cst(length));
+        self.bytecode.instr().array_new(dst, Val::Cst(length));
         for (index, element) in elements.iter().enumerate() {
             let val = self.lower_expr_val(element);
             let index = self.get_const(Value::from_int(index as i64));
-            self.bytecode.instr().set_array(dst, val, Val::Cst(index));
+            self.bytecode.instr().array_set(dst, val, Val::Cst(index));
         }
     }
     fn lower_expr_array_default_length_dst(&mut self, default: &TypedExpr, length: &TypedExpr, dst: Reg) {
         let length = self.lower_expr_val(length);
         let default = self.lower_expr_val(default);
-        self.bytecode.instr().new_array(dst, length);
+        self.bytecode.instr().array_new(dst, length);
         let index = self.alloc_reg();
         let one = self.get_const(Value::from_int(1));
 
@@ -292,8 +292,8 @@ impl<'f> Lowerer<'f> {
         let exit = self.new_label();
 
         self.bytecode.label(cond);
-        self.bytecode.instr().ibge(Val::Reg(index), length, exit);
-        self.bytecode.instr().set_array(dst, default, Val::Reg(index));
+        self.bytecode.instr().ibgte(Val::Reg(index), length, exit);
+        self.bytecode.instr().array_set(dst, default, Val::Reg(index));
         self.bytecode.instr().iadd(index, Val::Reg(index), Val::Cst(one));
         self.bytecode.instr().jmp(cond);
         self.bytecode.label(exit);
@@ -301,7 +301,7 @@ impl<'f> Lowerer<'f> {
     fn lower_expr_index_dst(&mut self, array: &TypedExpr, index: &TypedExpr, dst: Reg) {
         let array = self.lower_expr_val(array);
         let index = self.lower_expr_val(index);
-        self.bytecode.instr().get_array(dst, array, index);
+        self.bytecode.instr().array_get(dst, array, index);
     }
     fn lower_expr_infix_dst(&mut self, left: &TypedExpr, op: TypedInfixOp, right: &TypedExpr, dst: Reg) {
         match op {
@@ -364,12 +364,12 @@ impl<'f> Lowerer<'f> {
         self.bytecode.instr().call(dst, fun, arg_start);
         self.exit_stack_frame();
     }
-    fn dst_to_val(&mut self, f: impl Fn(&mut Lowerer<'f>, Reg)) -> Val {
+    fn dst_to_val(&mut self, f: impl Fn(&mut Lowerer, Reg)) -> Val {
         let dst = self.alloc_reg();
         f(self, dst);
         Val::Reg(dst)
     }
-    fn val_to_dst(&mut self, f: impl Fn(&mut Lowerer<'f>) -> Val, dst: Reg) {
+    fn val_to_dst(&mut self, f: impl Fn(&mut Lowerer) -> Val, dst: Reg) {
         let src = f(self);
         self.bytecode.instr().mov(dst, src);
     }
@@ -440,7 +440,7 @@ impl<'f> Lowerer<'f> {
 
                 let value = op.map_or(value, |op| {
                     let reg = self.alloc_reg();
-                    self.bytecode.instr().get_array(reg, Val::Reg(array), index);
+                    self.bytecode.instr().array_get(reg, Val::Reg(array), index);
                     match op {
                         TypedAssignOp::Arith(op, ty) => self.lower_infix_arith(op, ty, reg, Val::Reg(reg), value),
                         TypedAssignOp::Bitwise(op) => self.lower_infix_bitwise(op, reg, Val::Reg(reg), value),
@@ -448,7 +448,7 @@ impl<'f> Lowerer<'f> {
                     Val::Reg(reg)
                 });
 
-                self.bytecode.instr().set_array(array, value, index);
+                self.bytecode.instr().array_set(array, value, index);
 
                 self.exit_stack_frame();
             }
