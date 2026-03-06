@@ -9,3 +9,6 @@ heap values
   - 32 bit len
   - 1 bit gc, 31 bit len
   - 32 bit one per field
+
+array
+bytes

@@ -3,32 +3,30 @@ use std::ops::Neg;
 use strum::EnumIs;
 
 use crate::{
-    heap::ObjectPtr,
+    heap::{Bytecode, HeapLock, Object, Values},
     instr::{Instr, Op, Reg, Val},
-    lower::CompiledFun,
-    runtime::NativeFunSig,
+    runtime::NativeFun,
     value::Value,
 };
 
-pub struct Call {
-    fun: ObjectPtr,
-    ip: usize,
-}
+pub struct VM<'h, 'l> {
+    pub call_stack: Object<'l, Values>,
+    pub value_stack: Object<'l, Values>,
 
-pub struct VM<'f> {
-    pub call_stack: Vec<Call>,
-    pub value_stack: Vec<Value>,
+    pub bytecode: Object<'l, Bytecode>,
+    pub consts: Object<'l, Values>,
 
-    pub fun: &'f CompiledFun<'f>,
-    pub value_stack_base: usize,
+    pub value_stack_frame: usize,
+    pub call_stack_top: usize,
+
     pub ip: usize,
-    pub heap: &'f ObjectHeap,
+    pub heap: &'l HeapLock<'h>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Fun {
-    Native(NativeFunSig),
-    Compiled(ObjectPtr),
+pub enum Fun<'l> {
+    Native(NativeFun),
+    Compiled(Object<'l, Values>),
 }
 
 #[derive(Debug)]
@@ -40,24 +38,24 @@ pub enum ControlFlow {
     Continue,
 }
 
-impl<'f> VM<'f> {
-    fn read_value(&self, val: Val) -> Value {
+impl<'h: 'l, 'l> VM<'h, 'l> {
+    fn read_value(&self, val: Val) -> Value<'l> {
         match val {
             Val::Reg(reg) => self.read_reg(reg),
-            Val::Cst(cst) => self.fun.consts[cst.0 as usize].get(),
+            Val::Cst(cst) => self.consts.get(cst.0 as usize),
         }
     }
-    fn read_reg(&self, reg: Reg) -> Value {
-        self.value_stack[self.value_stack_base + reg.0 as usize]
+    fn read_reg(&self, reg: Reg) -> Value<'l> {
+        self.value_stack.get(self.value_stack_frame + reg.0 as usize)
     }
-    fn write_reg(&mut self, reg: Reg, val: Value) {
-        self.value_stack[self.value_stack_base + reg.0 as usize] = val;
+    fn write_reg(&mut self, reg: Reg, val: Value<'l>) {
+        self.value_stack.set(self.value_stack_frame + reg.0 as usize, val);
     }
 
     fn execute_arith_instr(
         &mut self,
         instr: Instr,
-        op: impl Fn(Value, Value) -> Value,
+        op: impl Fn(Value<'l>, Value<'l>) -> Value<'l>,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -69,7 +67,7 @@ impl<'f> VM<'f> {
     fn execute_branch_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value, Value) -> bool,
+        cmp: impl Fn(Value<'l>, Value<'l>) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -88,7 +86,7 @@ impl<'f> VM<'f> {
     fn execute_set_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value, Value) -> bool,
+        cmp: impl Fn(Value<'l>, Value<'l>) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -97,34 +95,56 @@ impl<'f> VM<'f> {
         Ok(ControlFlow::Continue)
     }
 
-    fn ret(&mut self, value: Value) -> Result<ControlFlow, RuntimeError> {
-        let Some(prev_call) = self.call_stack.pop() else {
+    fn call_stack_push(&mut self) {
+        self.call_stack
+            .set(self.call_stack_top, Value::from_int(self.ip as i64));
+        self.call_stack
+            .set(self.call_stack_top + 1, Value::from_object(self.bytecode));
+        self.call_stack
+            .set(self.call_stack_top + 2, Value::from_object(self.consts));
+        self.call_stack_top += 3;
+    }
+
+    fn call_stack_pop(&mut self) -> Option<(usize, Object<'l, Bytecode>, Object<'l, Values>)> {
+        if self.call_stack_top == 0 {
+            return None;
+        }
+        self.call_stack_top -= 3;
+        let ip = self.call_stack.get(self.call_stack_top).as_int() as usize;
+        let bytecode = unsafe { self.call_stack.get(self.call_stack_top + 1).as_object() };
+        let consts = unsafe { self.call_stack.get(self.call_stack_top + 2).as_object() };
+        Some((ip, bytecode, consts))
+    }
+
+    fn ret(&mut self, value: Value<'l>) -> Result<ControlFlow, RuntimeError> {
+        let Some((prev_ip, prev_bytecode, prev_consts)) = self.call_stack_pop() else {
             return Ok(ControlFlow::Break);
         };
-        self.fun = prev_call.fun;
-        self.ip = prev_call.ip + 1;
-        let call_instr = self.fun.bytecode[prev_call.ip];
-        self.value_stack_base -= call_instr.args_start() as usize;
+        self.ip = prev_ip + 1;
+        self.bytecode = prev_bytecode;
+        self.consts = prev_consts;
+        let call_instr = self.bytecode.get(prev_ip);
+        self.value_stack_frame -= call_instr.args_start() as usize;
         self.write_reg(call_instr.dst(), value);
         Ok(ControlFlow::Continue)
     }
 
     pub fn execute_next_instr(&mut self) -> Result<ControlFlow, RuntimeError> {
-        let instr = self.fun.bytecode[self.ip];
+        let instr = self.bytecode.get(self.ip);
 
-        fn int_op<'f>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value, Value) -> Value {
+        fn int_op<'v>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value<'v>, Value<'v>) -> Value<'v> {
             move |a, b| Value::from_int(op(a.as_int(), b.as_int()))
         }
 
-        fn float_op<'f>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value, Value) -> Value {
+        fn float_op<'v>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value<'v>, Value<'v>) -> Value<'v> {
             move |a, b| Value::from_float(op(a.as_float(), b.as_float()))
         }
 
-        fn int_cmp<'f>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value, Value) -> bool {
+        fn int_cmp<'v>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value<'v>, Value<'v>) -> bool {
             move |a, b| cmp(a.as_int(), b.as_int())
         }
 
-        fn float_cmp<'f>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value, Value) -> bool {
+        fn float_cmp<'v>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value<'v>, Value<'v>) -> bool {
             move |a, b| cmp(a.as_float(), b.as_float())
         }
 
@@ -176,23 +196,19 @@ impl<'f> VM<'f> {
                 Ok(ControlFlow::Continue)
             }
             Op::Call => {
-                let fun = unsafe { self.read_value(instr.src1()).as_fun() };
-                match fun {
-                    Fun::Native(fun) => {
-                        let args_start = instr.args_start() as usize;
-                        let args = &self.value_stack[self.value_stack_base + args_start..];
-                        self.write_reg(instr.dst(), fun(args)?);
-                        self.ip += 1;
-                    }
-                    Fun::Compiled(fun) => {
-                        self.call_stack.push(Call {
-                            fun: self.fun,
-                            ip: self.ip,
-                        });
-                        self.value_stack_base += instr.args_start() as usize;
-                        self.fun = fun;
-                        self.ip = 0;
-                    }
+                let value = self.read_value(instr.src1());
+                if value.is_object() {
+                    let object: Object<'_, Values> = unsafe { value.as_object() };
+                    self.call_stack_push();
+                    self.value_stack_frame += instr.args_start() as usize;
+                    self.bytecode = unsafe { object.get(0).as_object() };
+                    self.consts = unsafe { object.get(1).as_object() };
+                    self.ip = 0;
+                } else {
+                    let args_start = instr.args_start() as usize;
+                    let fun = unsafe { value.as_native_fun() };
+                    self.write_reg(instr.dst(), fun(self.value_stack, self.value_stack_frame + args_start)?);
+                    self.ip += 1;
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -202,25 +218,23 @@ impl<'f> VM<'f> {
             }
             Op::ArrayInit => {
                 let length = self.read_value(instr.src1());
-                let array_object = self.heap.alloc_array(length.as_int() as u64);
-                self.write_reg(instr.dst(), Value::from_object(array_object.heap_object()));
+                let object: Object<'l, Values> = self.heap.alloc(length.as_int() as usize);
+                self.write_reg(instr.dst(), Value::from_object(object));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
             Op::ArrayGet => {
-                let array = self.read_value(instr.src1());
-                let array_object = unsafe { array.as_object() }.as_array().unwrap();
+                let object: Object<'l, Values> = unsafe { self.read_value(instr.src1()).as_object() };
                 let index = self.read_value(instr.src2());
-                self.write_reg(instr.dst(), array_object.get(index.as_int() as u64));
+                self.write_reg(instr.dst(), object.get(index.as_int() as usize));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
             Op::ArraySet => {
-                let array = self.read_reg(instr.dst());
-                let array_object = unsafe { array.as_object() }.as_array().unwrap();
+                let object: Object<'l, Values> = unsafe { self.read_reg(instr.dst()).as_object() };
                 let value = self.read_value(instr.src1());
                 let index = self.read_value(instr.src2());
-                array_object.set(index.as_int() as u64, value);
+                object.set(index.as_int() as usize, value);
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }

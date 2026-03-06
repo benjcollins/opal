@@ -1,110 +1,164 @@
 use std::{
-    cell::RefCell,
+    cell::Cell,
+    io::{self, Error},
     marker::PhantomData,
-    ptr::{self, null_mut},
-    sync::atomic::AtomicU32,
+    ptr::null_mut,
+    sync::{RwLock, RwLockReadGuard, atomic::AtomicU32},
 };
 
 use elsa::FrozenMap;
-use libc::{MAP_ANONYMOUS, PROT_READ, PROT_WRITE, mmap};
+use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE, mmap};
 
 use crate::{instr::Instr, value::Value};
 
 enum Tag {
-    Fun,
     Array,
+    Bytecode,
 }
 
 static HEAP_SIZE: usize = 64 * 1024 * 1024; // 64 MB
 
-pub struct Heap {
+pub struct Heap(RwLock<HeapInner>);
+
+pub struct HeapLock<'h> {
+    heap: &'h Heap,
+    guard: RwLockReadGuard<'h, HeapInner>,
+}
+
+struct HeapInner {
     base: *mut u8,
-    offset: usize,
+    offset: Cell<usize>,
     roots: FrozenMap<ObjectPtr, Box<AtomicU32>>,
-}
-
-pub struct ObjectHeader(usize);
-
-pub struct ObjectHandle<'h, T> {
-    object: ObjectPtr,
-    ref_count: &'h AtomicU32,
-    phantom: PhantomData<T>,
-}
-
-pub struct ObjectRef<'a, T> {
-    ptr: ObjectPtr,
-    phantom: PhantomData<&'a T>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObjectPtr(*mut u8);
 
-pub struct ArrayObject;
-pub struct FunObject;
+pub struct ObjectHeader(u64);
 
-trait HeapObject {
-    type Init<'a>;
-    const TAG: Tag;
-    fn size(init: &Self::Init<'_>) -> usize;
-    fn init(ptr: *mut u8, init: &Self::Init<'_>);
+pub struct RootedObject<'h, T> {
+    ptr: ObjectPtr,
+    heap: &'h Heap,
+    _phantom: PhantomData<T>,
 }
 
-#[repr(align(8))]
-struct FunObjectHeader {
-    instr_len: usize,
-    consts_len: usize,
+pub struct RootedObjectLock<'h, T> {
+    ptr: ObjectPtr,
+    heap_lock: HeapLock<'h>,
+    _phantom: PhantomData<T>,
 }
 
-impl HeapObject for FunObject {
-    type Init<'a> = (&'a [Instr], &'a [Value]);
-    const TAG: Tag = Tag::Fun;
+#[derive(Debug, Clone, Copy)]
+pub struct Object<'a, T> {
+    ptr: ObjectPtr,
+    phantom: PhantomData<&'a T>,
+}
 
-    fn size((instrs, consts): &Self::Init<'_>) -> usize {
-        size_of::<FunObjectHeader>() + instrs.len() * size_of::<Instr>() + consts.len() * size_of::<Value>()
+#[derive(Debug, Clone, Copy)]
+pub struct Bytecode;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Values;
+
+pub trait ObjectType {
+    type Element<'a>;
+}
+
+impl ObjectType for Bytecode {
+    type Element<'a> = Instr;
+}
+
+impl ObjectType for Values {
+    type Element<'a> = Value<'a>;
+}
+
+impl<'a, T: ObjectType> Object<'a, T> {
+    pub fn get(&self, index: usize) -> T::Element<'a> {
+        unsafe { self.data_base().cast::<T::Element<'a>>().add(index).read() }
     }
-    fn init(mut ptr: *mut u8, (instrs, consts): &Self::Init<'_>) {
+    pub fn set(&self, index: usize, value: T::Element<'a>) {
         unsafe {
-            let fun_object_header = ptr.cast::<FunObjectHeader>();
-            fun_object_header.write(FunObjectHeader {
-                instr_len: instrs.len(),
-                consts_len: consts.len(),
-            });
-            ptr = ptr.add(size_of::<FunObjectHeader>());
-            ptr::copy(instrs.as_ptr() as *mut u8, ptr, size_of::<Instr>() * instrs.len());
-            ptr = ptr.add(size_of::<Instr>());
-            ptr::copy(instrs.as_ptr() as *mut u8, ptr, size_of::<Instr>() * instrs.len());
+            self.data_base().cast::<T::Element<'a>>().add(index).write(value);
         }
     }
-}
-
-impl<'a> ObjectRef<'a, ArrayObject> {
-    pub fn get(&self, index: usize) -> Value {
-        todo!()
+    pub fn data_base(&self) -> *mut u8 {
+        unsafe { self.as_ptr().cast::<u64>().add(1) as *mut u8 }
     }
-}
-
-impl<'a> ObjectRef<'a, FunObject> {
-    pub fn instrs(self) -> &'a [Instr] {
-        todo!()
+    pub fn len(&self) -> usize {
+        (unsafe { self.as_ptr().cast::<u64>().read() }) as usize
     }
-    pub fn consts(self) -> &'a [Value] {
-        todo!()
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.ptr.0
+    }
+    pub unsafe fn from_ptr(ptr: *mut u8) -> Object<'a, T> {
+        Object {
+            ptr: ObjectPtr(ptr),
+            phantom: PhantomData,
+        }
     }
 }
 
 impl Heap {
     pub fn new() -> Heap {
-        let base = unsafe { mmap(null_mut(), HEAP_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0) } as *mut u8;
-        Heap {
+        let base = unsafe {
+            mmap(
+                null_mut(),
+                HEAP_SIZE,
+                PROT_READ | PROT_WRITE,
+                MAP_ANONYMOUS | MAP_PRIVATE,
+                -1,
+                0,
+            )
+        } as *mut u8;
+        if base == MAP_FAILED as *mut u8 {
+            let error = Error::last_os_error();
+            panic!("could not memory map heap: {}", error);
+        }
+        let inner = HeapInner {
             base,
-            offset: 0,
+            offset: Cell::new(0),
             roots: FrozenMap::new(),
+        };
+        Heap(RwLock::new(inner))
+    }
+    pub fn lock(&self) -> HeapLock<'_> {
+        HeapLock {
+            heap: self,
+            guard: self.0.read().unwrap(),
         }
     }
-    pub fn alloc_raw<T: HeapObject>(&self) -> ObjectPtr {
-        todo!()
+}
+
+impl<'h> HeapLock<'h> {
+    fn alloc_raw(&self, mut size: usize) -> ObjectPtr {
+        size += size % 8;
+        if self.guard.offset.get() + size > HEAP_SIZE {
+            panic!("out of memory!");
+        }
+        let ptr = unsafe { self.guard.base.add(self.guard.offset.get()) };
+        self.guard.offset.set(self.guard.offset.get() + size);
+        ObjectPtr(ptr)
     }
-    pub fn alloc<T>(&self) -> ObjectHandle<'_, T> {
-        todo!()
+    pub fn root<'a, T>(&self, object: Object<'a, T>) -> RootedObject<'h, T> {
+        self.guard.roots.insert(object.ptr, Box::new(AtomicU32::new(1)));
+        RootedObject {
+            ptr: object.ptr,
+            heap: self.heap,
+            _phantom: PhantomData,
+        }
+    }
+    pub fn get_ref_from_root<T>(&self, rooted_object: &RootedObject<'h, T>) -> Object<'_, T> {
+        Object {
+            ptr: rooted_object.ptr,
+            phantom: PhantomData,
+        }
+    }
+    pub fn alloc<T: ObjectType>(&self, size: usize) -> Object<'_, T> {
+        let ptr = self.alloc_raw(size_of::<u64>() + size * size_of::<T::Element<'static>>());
+        unsafe { ptr.0.cast::<u64>().write(size as u64) };
+        Object {
+            ptr,
+            phantom: PhantomData,
+        }
     }
 }

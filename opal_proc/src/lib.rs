@@ -32,17 +32,18 @@ fn inner(item: TokenStream2) -> TokenStream2 {
 
     let output = quote! {
         #[allow(non_upper_case_globals)]
-        const #fn_name: opal::runtime::NativeFun = {
+        const #fn_name: opal::runtime::TypedNativeFun = {
             use opal::value::{Value, ValueConv, NativeFunResult};
-            use opal::runtime::NativeFun;
+            use opal::runtime::TypedNativeFun;
+            use opal::heap::{Object, Values};
 
-            fn inner<'f>(args: &[Value<'f>]) -> Result<Value<'f>, RuntimeError> {
+            fn inner<'l>(value_stack: Object<'l, Values>, value_stack_frame: usize) -> Result<Value<'l>, RuntimeError> {
                 #(
-                    let #pat = <#ty as ValueConv<'f>>::from_value(args[#index]);
+                    let #pat = <#ty as ValueConv<'l>>::from_value(value_stack.get(value_stack_frame + #index));
                 )*
-                <#ret_ty as NativeFunResult<'f>>::map(#block)
+                <#ret_ty as NativeFunResult<'l>>::map(#block)
             }
-            NativeFun {
+            TypedNativeFun {
                 name: #fn_name_str,
                 params: &[#(<#ty as ValueConv>::TYPE),*],
                 returns: <<#ret_ty as NativeFunResult>::Output as ValueConv>::TYPE,

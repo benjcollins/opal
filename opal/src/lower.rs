@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
     ast::{ArithOp, BitwiseOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
@@ -17,8 +17,8 @@ pub struct Label(u32);
 
 pub struct Lowerer {
     pub bytecode: BytecodeBuffer<Label>,
-    pub consts: Vec<Value>,
-    pub consts_index: HashMap<Value, Cst>,
+    pub consts: Vec<Value<'static>>,
+    pub consts_index: HashMap<Value<'static>, Cst>,
     pub next_label: u32,
     pub stack_top: u8,
     pub stack_frames: Vec<u8>,
@@ -35,7 +35,7 @@ pub struct LoopLabels {
 
 #[derive(Debug)]
 pub struct CompiledFun {
-    pub consts: Vec<Cell<Value>>,
+    pub consts: Vec<Value<'static>>,
     pub bytecode: Vec<Instr>,
 }
 
@@ -61,14 +61,14 @@ pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
         lowerer.bytecode.instr().ret(Val::Cst(unit));
     }
     let fun = CompiledFun {
-        consts: lowerer.consts.into_iter().map(Cell::new).collect(),
+        consts: lowerer.consts,
         bytecode: lowerer.bytecode.finish(),
     };
     (fun, lowerer.fun_ptrs)
 }
 
 impl Lowerer {
-    fn get_const(&mut self, value: Value) -> Cst {
+    fn get_const(&mut self, value: Value<'static>) -> Cst {
         *self.consts_index.entry(value).or_insert_with(|| {
             let cst = Cst(self.consts.len() as u8);
             self.consts.push(value);

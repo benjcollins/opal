@@ -1,11 +1,11 @@
 use libtest_mimic::{Arguments, Failed, Trial};
 use opal::{
     ast::ModuleItem,
-    heap::ObjectHeap,
+    heap::Heap,
     parser::parse_module,
-    runtime::{Heap, Runtime},
+    runtime::{Fun, Runtime},
     value::Array,
-    vm::{Fun, RuntimeError},
+    vm::RuntimeError,
 };
 use std::{
     convert::Infallible,
@@ -49,8 +49,7 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     let module = module.unwrap();
 
     let heap = Heap::new();
-    let object_heap = ObjectHeap::new();
-    let mut runtime = Runtime::new(&heap, &object_heap);
+    let mut runtime = Runtime::new(&heap);
 
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print_float);
@@ -62,24 +61,24 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
 
-    fs::create_dir_all("tests/output")?;
-    let path = format!("tests/output/{}.asm", module.name.0);
-    if !fs::exists(&path)? {
-        let mut file = File::create(&path)?;
-        let mut fun_names: Vec<_> = runtime.funs.keys().collect();
-        fun_names.sort_by_key(|name| name.0.as_str());
-        for name in fun_names {
-            let fun = runtime.funs.get(name).unwrap();
-            if let Fun::Compiled(fun) = fun {
-                writeln!(file, "{}:", name.0)?;
-                for instr in &fun.bytecode {
-                    writeln!(file, "  {}", instr)?;
-                }
-                writeln!(file)?;
-            }
-        }
-        file.flush()?;
-    }
+    // fs::create_dir_all("tests/output")?;
+    // let path = format!("tests/output/{}.asm", module.name.0);
+    // if !fs::exists(&path)? {
+    //     let mut file = File::create(&path)?;
+    //     let mut fun_names: Vec<_> = runtime.funs.keys().collect();
+    //     fun_names.sort_by_key(|name| name.0.as_str());
+    //     for name in fun_names {
+    //         let fun = runtime.funs.get(name).unwrap();
+    //         if let Fun::Compiled(fun) = fun {
+    //             writeln!(file, "{}:", name.0)?;
+    //             for instr in &fun.bytecode {
+    //                 writeln!(file, "  {}", instr)?;
+    //             }
+    //             writeln!(file)?;
+    //         }
+    //     }
+    //     file.flush()?;
+    // }
 
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())
