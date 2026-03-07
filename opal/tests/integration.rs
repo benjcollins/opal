@@ -34,7 +34,7 @@ fn print_float(value: f64) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn len(array: Array<i64>) -> Result<i64, RuntimeError> {
+fn len<T>(array: Array<T>) -> Result<i64, RuntimeError> {
     Ok(array.len())
 }
 
@@ -61,24 +61,26 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
 
-    // fs::create_dir_all("tests/output")?;
-    // let path = format!("tests/output/{}.asm", module.name.0);
-    // if !fs::exists(&path)? {
-    //     let mut file = File::create(&path)?;
-    //     let mut fun_names: Vec<_> = runtime.funs.keys().collect();
-    //     fun_names.sort_by_key(|name| name.0.as_str());
-    //     for name in fun_names {
-    //         let fun = runtime.funs.get(name).unwrap();
-    //         if let Fun::Compiled(fun) = fun {
-    //             writeln!(file, "{}:", name.0)?;
-    //             for instr in &fun.bytecode {
-    //                 writeln!(file, "  {}", instr)?;
-    //             }
-    //             writeln!(file)?;
-    //         }
-    //     }
-    //     file.flush()?;
-    // }
+    fs::create_dir_all("tests/output")?;
+    let path = format!("tests/output/{}.asm", module.name.0);
+    if !fs::exists(&path)? {
+        let mut file = File::create(&path)?;
+        let mut fun_names: Vec<_> = runtime.funs.keys().collect();
+        fun_names.sort_by_key(|name| name.0.as_str());
+        for name in fun_names {
+            let fun = runtime.funs.get(name).unwrap();
+            if let Fun::Compiled(fun) = fun {
+                let fun_lock = fun.lock();
+                let bytecode = fun_lock.get().get(0).as_pointer().as_object_bytecode();
+                writeln!(file, "{}:", name.0)?;
+                for i in 0..bytecode.len() {
+                    writeln!(file, "  {}", bytecode.get(i))?;
+                }
+                writeln!(file)?;
+            }
+        }
+        file.flush()?;
+    }
 
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())

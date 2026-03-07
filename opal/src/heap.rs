@@ -1,6 +1,6 @@
 use std::{
     cell::Cell,
-    io::{self, Error},
+    io::Error,
     marker::PhantomData,
     ptr::null_mut,
     sync::{RwLock, RwLockReadGuard, atomic::AtomicU32},
@@ -10,11 +10,6 @@ use elsa::FrozenMap;
 use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE, mmap};
 
 use crate::{instr::Instr, value::Value};
-
-enum Tag {
-    Array,
-    Bytecode,
-}
 
 static HEAP_SIZE: usize = 64 * 1024 * 1024; // 64 MB
 
@@ -34,8 +29,6 @@ struct HeapInner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObjectPtr(*mut u8);
 
-pub struct ObjectHeader(u64);
-
 pub struct RootedObject<'h, T> {
     ptr: ObjectPtr,
     heap: &'h Heap,
@@ -44,7 +37,7 @@ pub struct RootedObject<'h, T> {
 
 pub struct RootedObjectLock<'h, T> {
     ptr: ObjectPtr,
-    heap_lock: HeapLock<'h>,
+    _heap_lock: HeapLock<'h>,
     _phantom: PhantomData<T>,
 }
 
@@ -147,17 +140,30 @@ impl<'h> HeapLock<'h> {
             _phantom: PhantomData,
         }
     }
-    pub fn get_ref_from_root<T>(&self, rooted_object: &RootedObject<'h, T>) -> Object<'_, T> {
-        Object {
-            ptr: rooted_object.ptr,
-            phantom: PhantomData,
-        }
-    }
     pub fn alloc<T: ObjectType>(&self, size: usize) -> Object<'_, T> {
         let ptr = self.alloc_raw(size_of::<u64>() + size * size_of::<T::Element<'static>>());
         unsafe { ptr.0.cast::<u64>().write(size as u64) };
         Object {
             ptr,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'h, T> RootedObject<'h, T> {
+    pub fn lock(&self) -> RootedObjectLock<'h, T> {
+        RootedObjectLock {
+            ptr: self.ptr,
+            _heap_lock: self.heap.lock(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'h, T> RootedObjectLock<'h, T> {
+    pub fn get(&self) -> Object<'_, T> {
+        Object {
+            ptr: self.ptr,
             phantom: PhantomData,
         }
     }

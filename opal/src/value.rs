@@ -3,7 +3,7 @@ use std::{convert::Infallible, marker::PhantomData, mem::transmute, ptr};
 use strum::{EnumIs, FromRepr};
 
 use crate::{
-    heap::{Bytecode, Object, ObjectType, Values},
+    heap::{Bytecode, Object, Values},
     runtime::NativeFun,
     ty::{BorrowedType, NumericType},
     vm::RuntimeError,
@@ -39,11 +39,14 @@ impl<'a, T: ValueConv<'a>> NativeFunResult<'a> for Result<T, RuntimeError> {
 impl<'a, T: ValueConv<'a>> ValueConv<'a> for Array<'a, T> {
     const TYPE: BorrowedType<'static> = BorrowedType::Array(&T::TYPE);
     fn into_value(self) -> Value<'a> {
-        Value::from_object(self.object)
+        Value::from_pointer(Pointer::ObjectValues(self.object))
     }
     fn from_value(value: Value<'a>) -> Self {
+        let Pointer::ObjectValues(object) = value.as_pointer() else {
+            panic!();
+        };
         Array {
-            object: unsafe { value.as_object() },
+            object,
             phantom: PhantomData,
         }
     }
@@ -118,10 +121,31 @@ fn is_pointer(value: u64) -> bool {
     value & POINTER_PREFIX_MASK == POINTER_PREFIX
 }
 
-enum Pointer<'a> {
+pub enum Pointer<'a> {
     NativeFun(NativeFun),
     ObjectValues(Object<'a, Values>),
     ObjectBytecode(Object<'a, Bytecode>),
+}
+
+impl<'a> Pointer<'a> {
+    pub fn as_native_fun(self) -> NativeFun {
+        match self {
+            Pointer::NativeFun(fun) => fun,
+            _ => panic!(),
+        }
+    }
+    pub fn as_object_values(self) -> Object<'a, Values> {
+        match self {
+            Pointer::ObjectValues(object) => object,
+            _ => panic!(),
+        }
+    }
+    pub fn as_object_bytecode(self) -> Object<'a, Bytecode> {
+        match self {
+            Pointer::ObjectBytecode(object) => object,
+            _ => panic!(),
+        }
+    }
 }
 
 impl<'a> Value<'a> {
@@ -132,14 +156,14 @@ impl<'a> Value<'a> {
         Value::new(ptr::null_mut())
     }
     pub fn from_int(value: i64) -> Value<'a> {
-        if has_pointer_prefix(value as u64) {
+        if is_pointer(value as u64) {
             panic!("integer int value")
         }
         Value::new(ptr::without_provenance_mut(value as usize))
     }
     pub fn from_float(value: f64) -> Value<'a> {
         let bits = value.to_bits();
-        if has_pointer_prefix(bits) {
+        if is_pointer(bits) {
             panic!("invalid float value")
         }
         Value::new(ptr::without_provenance_mut(value.to_bits() as usize))
@@ -147,12 +171,6 @@ impl<'a> Value<'a> {
     pub fn from_bool(value: bool) -> Value<'a> {
         Value::new(ptr::without_provenance_mut(value as usize))
     }
-    // pub fn from_native_fun(fun: NativeFun) -> Value<'a> {
-    //     Value::new(fun as *mut ())
-    // }
-    // pub fn from_object<T: ObjectType>(object: Object<'a, T>) -> Value<'a> {
-    //     Value::new(object.as_ptr().map_addr(|addr| addr | (POINTER_PREFIX as usize)).cast())
-    // }
     pub fn as_float(self) -> f64 {
         f64::from_bits(self.0.addr() as u64)
     }
@@ -162,10 +180,18 @@ impl<'a> Value<'a> {
     pub fn as_bool(self) -> bool {
         self.0.addr() != 0
     }
-    fn from_pointer(ptr: Pointer<'a>) -> Value<'a> {
-        todo!()
+    pub fn from_pointer(ptr: Pointer<'a>) -> Value<'a> {
+        let (ptr, tag) = match ptr {
+            Pointer::NativeFun(fun) => (fun as *mut u8, PointerTag::NativeFun),
+            Pointer::ObjectValues(object) => (object.as_ptr(), PointerTag::ObjectValues),
+            Pointer::ObjectBytecode(object) => (object.as_ptr(), PointerTag::ObjectBytecode),
+        };
+        Value::new(
+            ptr.map_addr(|addr| addr | (POINTER_PREFIX as usize) | (tag as usize) << 48)
+                .cast(),
+        )
     }
-    fn as_pointer(self) -> Pointer<'a> {
+    pub fn as_pointer(self) -> Pointer<'a> {
         if !is_pointer(self.0 as u64) {
             panic!("invalid pointer value")
         }
@@ -179,22 +205,6 @@ impl<'a> Value<'a> {
             }
         }
     }
-    // pub fn as_native_fun(self) -> NativeFun {
-    //     let (ptr, flags) = self.as_pointer();
-    //     if !flags.is_native_fun {
-    //         panic!("this is not a native function")
-    //     }
-    //     unsafe { transmute::<*mut u8, NativeFun>(ptr) }
-    // }
-    // pub fn as_object<T: ObjectType>(self) -> Object<'a, T> {
-    //     if !self.is_object() {
-    //         panic!("invalid object")
-    //     }
-    //     unsafe { Object::from_ptr(self.0.map_addr(|addr| addr & !(POINTER_PREFIX as usize)) as *mut u8) }
-    // }
-    // pub fn is_object(self) -> bool {
-    //     (self.0.addr() as u64) & POINTER_PREFIX_MASK == POINTER_PREFIX
-    // }
 }
 
 impl<'a, T: ValueConv<'a>> Array<'a, T> {

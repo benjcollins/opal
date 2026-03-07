@@ -1,4 +1,7 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    rc::Rc,
+};
 
 use crate::{
     ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, PrefixOp, Stmt, VarDef},
@@ -62,6 +65,24 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, Ty
     })
 }
 
+fn instantiate(map: &mut HashMap<Ident, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
+    match (arg, param) {
+        (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) => Ok(()),
+        (Type::Numeric(a), Type::Numeric(b)) if a == b => Ok(()),
+        (Type::Array(a), Type::Array(b)) => instantiate(map, a, b),
+        (Type::Fun(sig1), Type::Fun(sig2)) => todo!(),
+        (ty, Type::Generic(name)) => match map.entry(name.clone()) {
+            Entry::Occupied(entry) if entry.get() == ty => Ok(()),
+            Entry::Vacant(entry) => {
+                entry.insert(ty.clone());
+                Ok(())
+            }
+            _ => Err(()),
+        },
+        _ => Err(()),
+    }
+}
+
 impl<'e> Inferer<'e> {
     fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), TypeError> {
         let (typed_expr, ty) = match expr {
@@ -106,8 +127,12 @@ impl<'e> Inferer<'e> {
                     typed_args.push(typed_arg);
                     arg_tys.push(arg_ty);
                 }
-                if arg_tys != sig.params {
-                    return Err(TypeError("incorrect function arguments"));
+                if arg_tys.len() != sig.params.len() {
+                    return Err(TypeError("incorrect number of function arguments"));
+                }
+                let mut map = HashMap::new();
+                for (arg, param) in arg_tys.iter().zip(&sig.params) {
+                    instantiate(&mut map, arg, param).map_err(|_| TypeError("could not instantiate function"))?;
                 }
                 let expr = TypedExpr::Call {
                     fun: Box::new(typed_fun),
@@ -176,7 +201,7 @@ impl<'e> Inferer<'e> {
                     (PrefixOp::BitwiseNot, Type::Numeric(NumericType::Int)) => {
                         (TypedPrefixOp::BitwiseNot, Type::Numeric(NumericType::Int))
                     }
-                    _ => return Err(TypeError("invalid types!")),
+                    _ => return Err(TypeError("invalid prefix operatortypes!")),
                 };
                 (TypedExpr::Prefix(typed_op, Box::new(typed_expr)), ty)
             }

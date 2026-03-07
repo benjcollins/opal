@@ -117,8 +117,8 @@ const PREFIX_OPS: &[(Symbol, Prec, PrefixOp)] = &[
 ];
 
 const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr) -> Result<Expr, Recovered>)] = &[
-    (Symbol::OpenParen, 11, |self_, expr| self_.parse_expr_call(expr)),
-    (Symbol::OpenBracket, 11, |self_, expr| self_.parse_expr_index(expr)),
+    (Symbol::OpenParen, 12, |self_, expr| self_.parse_expr_call(expr)),
+    (Symbol::OpenBracket, 12, |self_, expr| self_.parse_expr_index(expr)),
 ];
 
 const ASSIGN_OPS: &[(Option<AssignOp>, Symbol)] = &[

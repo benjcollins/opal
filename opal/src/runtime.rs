@@ -6,7 +6,7 @@ use crate::{
     infer::infer_fun,
     lower::lower_fun,
     ty::{BorrowedType, FunSig, Type},
-    value::Value,
+    value::{Pointer, Value},
     vm::{ControlFlow, RuntimeError, VM},
 };
 
@@ -16,6 +16,7 @@ pub type NativeFun =
 #[derive(Debug, Clone, Copy)]
 pub struct TypedNativeFun {
     pub name: &'static str,
+    pub generics: &'static [&'static str],
     pub params: &'static [BorrowedType<'static>],
     pub returns: BorrowedType<'static>,
     pub fun: NativeFun,
@@ -24,6 +25,7 @@ pub struct TypedNativeFun {
 impl TypedNativeFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
+            generics: self.generics.iter().map(|name| Ident::new(name)).collect(),
             params: Vec::from_iter(self.params.iter().map(|ty| ty.into())),
             returns: Box::new((&self.returns).into()),
         }
@@ -69,7 +71,8 @@ impl<'h> Runtime<'h> {
                         .as_ref()
                         .map(|ty| ty.try_into().unwrap())
                         .unwrap_or(Type::Unit);
-                    self.fun_sigs.insert(fun.name.clone(), FunSig::new(params, returns));
+                    self.fun_sigs
+                        .insert(fun.name.clone(), FunSig::new(vec![], params, returns));
                 }
             }
         }
@@ -93,8 +96,8 @@ impl<'h> Runtime<'h> {
                     }
 
                     let fun_object = heap_lock.alloc::<Values>(2);
-                    fun_object.set(0, Value::from_object(bytecode));
-                    fun_object.set(1, Value::from_object(consts));
+                    fun_object.set(0, Value::from_pointer(Pointer::ObjectBytecode(bytecode)));
+                    fun_object.set(1, Value::from_pointer(Pointer::ObjectValues(consts)));
                     let rooted_fun_object = heap_lock.root(fun_object);
 
                     consts_to_patch.push((consts, fun_ptrs));
@@ -106,29 +109,19 @@ impl<'h> Runtime<'h> {
         for (consts_to_patch, fun_ptrs) in consts_to_patch {
             for (target_fun_name, index) in fun_ptrs {
                 let fun = self.funs.get(&target_fun_name).unwrap();
-                let value = match fun {
-                    Fun::Native(fun) => Value::from_native_fun(*fun),
-                    Fun::Compiled(fun) => Value::from_object(heap_lock.get_ref_from_root(fun)),
+                match fun {
+                    Fun::Native(fun) => {
+                        let value = Value::from_pointer(Pointer::NativeFun(*fun));
+                        consts_to_patch.set(index as usize, value);
+                    }
+                    Fun::Compiled(fun) => {
+                        let fun_lock = fun.lock();
+                        let value = Value::from_pointer(Pointer::ObjectValues(fun_lock.get()));
+                        consts_to_patch.set(index as usize, value);
+                    }
                 };
-                consts_to_patch.set(index as usize, value);
             }
         }
-
-        // print bytecode
-        // let mut fun_names: Vec<_> = self.funs.keys().collect();
-        // fun_names.sort_by_key(|name| name.0.as_str());
-        // for name in fun_names {
-        //     let fun = self.funs.get(name).unwrap();
-        //     if let Fun::Compiled(fun) = fun {
-        //         let bytecode = unsafe { heap_lock.get_ref_from_root(fun).get(0).as_object::<Bytecode>() };
-        //         println!("{}:", name.0);
-        //         for i in 0..bytecode.len() {
-        //             let instr = bytecode.get(i);
-        //             println!("  {}", instr);
-        //         }
-        //         println!();
-        //     }
-        // }
 
         Ok(())
     }
@@ -139,13 +132,13 @@ impl<'h> Runtime<'h> {
 
         let heap_lock = self.heap.lock();
 
-        let fun_object = heap_lock.get_ref_from_root(fun);
+        let fun_object_lock = fun.lock();
 
         let mut vm = VM {
             call_stack: heap_lock.alloc(256),
             value_stack: heap_lock.alloc(1024),
-            bytecode: unsafe { fun_object.get(0).as_object::<Bytecode>() },
-            consts: unsafe { fun_object.get(1).as_object::<Values>() },
+            bytecode: fun_object_lock.get().get(0).as_pointer().as_object_bytecode(),
+            consts: fun_object_lock.get().get(1).as_pointer().as_object_values(),
             heap: &heap_lock,
             ip: 0,
             value_stack_frame: 0,

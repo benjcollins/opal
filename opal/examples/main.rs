@@ -17,6 +17,7 @@ fn main() -> ExitCode {
     runtime.register_native_fun(print_int);
     runtime.register_native_fun(print_float);
     runtime.register_native_fun(print_bool);
+    runtime.register_native_fun(reverse);
 
     let path = Path::new("../examples/example.opal");
     let source = fs::read_to_string(path).unwrap();
@@ -38,8 +39,18 @@ fn main() -> ExitCode {
 }
 
 #[opal_proc::fun]
-fn len(array: Array<i64>) -> Result<i64, RuntimeError> {
+fn len<T>(array: Array<T>) -> Result<i64, RuntimeError> {
     Ok(array.len())
+}
+
+#[opal_proc::fun]
+fn reverse<T>(array: Array<T>) -> Result<(), RuntimeError> {
+    for i in 0..array.len() / 2 {
+        let temp = array.get(i);
+        array.set(i, array.get(array.len() - 1 - i));
+        array.set(array.len() - 1 - i, temp);
+    }
+    Ok(())
 }
 
 #[opal_proc::fun]

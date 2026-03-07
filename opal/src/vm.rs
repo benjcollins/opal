@@ -6,7 +6,7 @@ use crate::{
     heap::{Bytecode, HeapLock, Object, Values},
     instr::{Instr, Op, Reg, Val},
     runtime::NativeFun,
-    value::Value,
+    value::{Pointer, Value},
 };
 
 pub struct VM<'h, 'l> {
@@ -98,10 +98,14 @@ impl<'h: 'l, 'l> VM<'h, 'l> {
     fn call_stack_push(&mut self) {
         self.call_stack
             .set(self.call_stack_top, Value::from_int(self.ip as i64));
-        self.call_stack
-            .set(self.call_stack_top + 1, Value::from_object(self.bytecode));
-        self.call_stack
-            .set(self.call_stack_top + 2, Value::from_object(self.consts));
+        self.call_stack.set(
+            self.call_stack_top + 1,
+            Value::from_pointer(Pointer::ObjectBytecode(self.bytecode)),
+        );
+        self.call_stack.set(
+            self.call_stack_top + 2,
+            Value::from_pointer(Pointer::ObjectValues(self.consts)),
+        );
         self.call_stack_top += 3;
     }
 
@@ -111,8 +115,16 @@ impl<'h: 'l, 'l> VM<'h, 'l> {
         }
         self.call_stack_top -= 3;
         let ip = self.call_stack.get(self.call_stack_top).as_int() as usize;
-        let bytecode = unsafe { self.call_stack.get(self.call_stack_top + 1).as_object() };
-        let consts = unsafe { self.call_stack.get(self.call_stack_top + 2).as_object() };
+        let bytecode = self
+            .call_stack
+            .get(self.call_stack_top + 1)
+            .as_pointer()
+            .as_object_bytecode();
+        let consts = self
+            .call_stack
+            .get(self.call_stack_top + 2)
+            .as_pointer()
+            .as_object_values();
         Some((ip, bytecode, consts))
     }
 
@@ -197,18 +209,20 @@ impl<'h: 'l, 'l> VM<'h, 'l> {
             }
             Op::Call => {
                 let value = self.read_value(instr.src1());
-                if value.is_object() {
-                    let object: Object<'_, Values> = unsafe { value.as_object() };
-                    self.call_stack_push();
-                    self.value_stack_frame += instr.args_start() as usize;
-                    self.bytecode = unsafe { object.get(0).as_object() };
-                    self.consts = unsafe { object.get(1).as_object() };
-                    self.ip = 0;
-                } else {
-                    let args_start = instr.args_start() as usize;
-                    let fun = unsafe { value.as_native_fun() };
-                    self.write_reg(instr.dst(), fun(self.value_stack, self.value_stack_frame + args_start)?);
-                    self.ip += 1;
+                match value.as_pointer() {
+                    Pointer::ObjectValues(object) => {
+                        self.call_stack_push();
+                        self.value_stack_frame += instr.args_start() as usize;
+                        self.bytecode = object.get(0).as_pointer().as_object_bytecode();
+                        self.consts = object.get(1).as_pointer().as_object_values();
+                        self.ip = 0;
+                    }
+                    Pointer::NativeFun(fun) => {
+                        let args_start = instr.args_start() as usize;
+                        self.write_reg(instr.dst(), fun(self.value_stack, self.value_stack_frame + args_start)?);
+                        self.ip += 1;
+                    }
+                    _ => panic!(),
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -218,20 +232,20 @@ impl<'h: 'l, 'l> VM<'h, 'l> {
             }
             Op::ArrayInit => {
                 let length = self.read_value(instr.src1());
-                let object: Object<'l, Values> = self.heap.alloc(length.as_int() as usize);
-                self.write_reg(instr.dst(), Value::from_object(object));
+                let object = self.heap.alloc(length.as_int() as usize);
+                self.write_reg(instr.dst(), Value::from_pointer(Pointer::ObjectValues(object)));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
             Op::ArrayGet => {
-                let object: Object<'l, Values> = unsafe { self.read_value(instr.src1()).as_object() };
+                let object = self.read_value(instr.src1()).as_pointer().as_object_values();
                 let index = self.read_value(instr.src2());
                 self.write_reg(instr.dst(), object.get(index.as_int() as usize));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }
             Op::ArraySet => {
-                let object: Object<'l, Values> = unsafe { self.read_reg(instr.dst()).as_object() };
+                let object = self.read_reg(instr.dst()).as_pointer().as_object_values();
                 let value = self.read_value(instr.src1());
                 let index = self.read_value(instr.src2());
                 object.set(index.as_int() as usize, value);

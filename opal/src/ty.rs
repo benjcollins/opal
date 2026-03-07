@@ -8,6 +8,7 @@ pub enum Type {
     Numeric(NumericType),
     Array(Box<Type>),
     Fun(FunSig),
+    Generic(Ident),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,10 +19,12 @@ pub enum BorrowedType<'a> {
     Numeric(NumericType),
     Array(&'a BorrowedType<'a>),
     Fun(&'a [BorrowedType<'a>], &'a BorrowedType<'a>),
+    Generic(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunSig {
+    pub generics: Vec<Ident>,
     pub params: Vec<Type>,
     pub returns: Box<Type>,
 }
@@ -61,8 +64,9 @@ impl TryFrom<&Expr> for Type {
 }
 
 impl FunSig {
-    pub fn new(params: Vec<Type>, returns: Type) -> FunSig {
+    pub fn new(generics: Vec<Ident>, params: Vec<Type>, returns: Type) -> FunSig {
         FunSig {
+            generics,
             params,
             returns: Box::new(returns),
         }
@@ -93,9 +97,11 @@ impl<'a> From<&BorrowedType<'a>> for Type {
             BorrowedType::Void => Type::Void,
             BorrowedType::Array(ty) => Type::Array(Box::new(ty.into())),
             BorrowedType::Fun(params, returns) => Type::Fun(FunSig {
+                generics: vec![],
                 params: Vec::from_iter(params.into_iter().map(|ty| ty.into())),
                 returns: Box::new(returns.into()),
             }),
+            BorrowedType::Generic(name) => Type::Generic(Ident::new(name)),
         }
     }
 }
