@@ -1,83 +1,103 @@
 use std::{
     alloc::{Layout, alloc, dealloc},
+    cell::RefCell,
+    collections::VecDeque,
     marker::PhantomData,
     ops::Deref,
     ptr::null_mut,
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, Once},
 };
 
 #[derive(Debug, Clone, Copy)]
-pub struct GcPtr(*mut ());
-
-unsafe impl Send for GcPtr {}
+pub struct GcPtr(*mut u8);
 
 #[repr(align(8))]
 struct GcHeader {
     next: GcPtr,
+    size: usize,
+    marked: bool,
 }
 
-pub struct GcRef<'m, T: Trace> {
+pub struct GcRef<'gc, T: Trace> {
     ptr: GcPtr,
-    _phantom: PhantomData<&'m T>,
+    _phantom: PhantomData<&'gc T>,
 }
 
-impl<'m, T: Trace> Clone for GcRef<'m, T> {
+impl<'gc, T: Trace> Clone for GcRef<'gc, T> {
     fn clone(&self) -> Self {
-        GcRef {
-            ptr: self.ptr,
-            _phantom: PhantomData,
+        *self
+    }
+}
+
+impl<'gc, T: Trace> Copy for GcRef<'gc, T> {}
+
+pub struct GcRoot<R: Root> {
+    ptr: *mut RootNode,
+    _phantom: PhantomData<R>,
+}
+
+pub struct Gc(Mutex<GcState>);
+
+#[derive(Debug)]
+pub struct WorkList {
+    items: VecDeque<(GcPtr, TraceFn)>,
+}
+
+impl WorkList {
+    pub fn queue<'gc, T: Trace>(&mut self, ref_: GcRef<'gc, T>) {
+        unsafe {
+            self.items.push_back((ref_.as_ptr(), |ptr, worklist| {
+                T::trace(&GcRef::from_ptr(ptr), worklist);
+            }));
         }
     }
 }
 
-impl<'m, T: Trace> Copy for GcRef<'m, T> {}
-
-pub struct GcRoot<R: Rootable> {
-    ptr: RootNodePtr,
-    _phantom: PhantomData<R>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RootNodePtr(*mut RootNode);
-
-unsafe impl Send for RootNodePtr {}
-
-pub struct Gc(Mutex<GcState>);
-
-struct GcState {
+pub struct GcState {
     objects: GcPtr,
-    roots: RootNodePtr,
+    roots: *mut RootNode,
 }
 
-struct RootNode {
-    prev: RootNodePtr,
+unsafe impl Send for GcState {}
+
+type TraceFn = fn(ptr: GcPtr, gc_state: &mut WorkList);
+
+pub struct RootNode {
+    prev: *mut RootNode,
     gc_ptr: GcPtr,
-    next: RootNodePtr,
+    trace: TraceFn,
+    next: *mut RootNode,
 }
 
 pub unsafe trait Trace {
-    fn trace(&self);
+    fn trace(this: &Self, work_list: &mut WorkList);
 }
 
-pub trait Rootable {
-    type Root<'a>: Trace;
+pub trait Root {
+    type Ref<'gc>: Trace
+    where
+        Self: 'gc;
+}
+
+pub trait Rootable<'gc>: Trace
+where
+    Self: 'gc,
+{
+    type Root: Root<Ref<'gc> = Self>;
 }
 
 impl GcPtr {
     const fn null() -> GcPtr {
         GcPtr(null_mut())
     }
+    fn is_null(self) -> bool {
+        self.0.is_null()
+    }
     fn header(self) -> *mut GcHeader {
         self.0.cast::<GcHeader>()
     }
-    fn data(self) -> *mut () {
-        unsafe { self.0.offset(size_of::<GcHeader>() as isize) }
-    }
-}
-
-impl RootNodePtr {
-    const fn null() -> RootNodePtr {
-        RootNodePtr(null_mut())
+    fn data(self) -> *mut u8 {
+        unsafe { self.0.add(size_of::<GcHeader>()) }
     }
 }
 
@@ -101,72 +121,192 @@ impl<'gc, T: Trace> Deref for GcRef<'gc, T> {
     }
 }
 
+pub struct AllocationIter(GcPtr);
+
+impl Iterator for AllocationIter {
+    type Item = GcPtr;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            if self.0.is_null() {
+                None
+            } else {
+                let cur = self.0;
+                self.0 = (*self.0.header()).next;
+                Some(cur)
+            }
+        }
+    }
+}
+
+pub struct RootIter(*mut RootNode);
+
+impl Iterator for RootIter {
+    type Item = *mut RootNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            if self.0.is_null() {
+                None
+            } else {
+                let cur = self.0;
+                self.0 = (*self.0).next;
+                Some(cur)
+            }
+        }
+    }
+}
+
+impl GcState {
+    fn allocations(&mut self) -> AllocationIter {
+        AllocationIter(self.objects)
+    }
+    fn roots(&mut self) -> RootIter {
+        RootIter(self.roots)
+    }
+    fn mark(&mut self) {
+        unsafe {
+            for ptr in self.allocations() {
+                (*ptr.header()).marked = false;
+            }
+            let mut work_list = WorkList { items: VecDeque::new() };
+            for root in self.roots() {
+                work_list.items.push_back(((*root).gc_ptr, (*root).trace));
+            }
+            while let Some((ptr, trace)) = work_list.items.pop_front() {
+                if (*ptr.header()).marked {
+                    continue;
+                }
+                (*ptr.header()).marked = true;
+                trace(ptr, &mut work_list);
+            }
+        }
+    }
+    fn sweep(&mut self) {
+        unsafe {
+            let mut prev = GcPtr::null();
+            for cur in self.allocations() {
+                if (*cur.header()).marked {
+                    prev = cur;
+                    continue;
+                }
+                if !(*cur.header()).marked {
+                    if prev.is_null() {
+                        self.objects = (*cur.header()).next;
+                    } else {
+                        (*prev.header()).next = (*cur.header()).next;
+                    }
+                    dealloc(cur.0, alloc_layout((*cur.header()).size));
+                }
+            }
+        }
+    }
+}
+
+fn alloc_layout(size: usize) -> Layout {
+    Layout::from_size_align(size_of::<GcHeader>() + size, align_of::<GcHeader>()).unwrap()
+}
+
 impl Gc {
-    pub fn init() -> Gc {
-        static GC: Mutex<Option<Gc>> = Mutex::new(Some(Gc(Mutex::new(GcState {
-            objects: GcPtr::null(),
-            roots: RootNodePtr::null(),
-        }))));
-        GC.lock().unwrap().take().expect("already acquired the global gc")
+    pub fn init() -> Option<Gc> {
+        static INIT: Once = Once::new();
+        let mut gc = None;
+        INIT.call_once(|| {
+            gc = Some(Gc(Mutex::new(GcState {
+                objects: GcPtr::null(),
+                roots: null_mut(),
+            })))
+        });
+        gc
     }
     fn lock(&self) -> MutexGuard<'_, GcState> {
         self.0.lock().unwrap()
     }
+    pub fn allocation_count(&mut self) -> usize {
+        let mut state = self.lock();
+        state.allocations().count()
+    }
     pub fn collect(&mut self) {
-        println!("currently does nothing!")
+        let mut state = self.lock();
+        state.mark();
+        state.sweep();
     }
     pub fn alloc<T: Trace>(&self, value: T) -> GcRef<'_, T> {
         unsafe {
             let mut state = self.lock();
-            let layout =
-                Layout::from_size_align(size_of::<GcHeader>() + size_of::<T>(), align_of::<GcHeader>()).unwrap();
-            let ptr = GcPtr(alloc(layout).cast());
+            let ptr = GcPtr(alloc(alloc_layout(size_of::<T>())).cast());
             (*ptr.header()).next = state.objects;
+            (*ptr.header()).size = size_of::<T>();
             *ptr.data().cast::<T>() = value;
             state.objects = ptr;
             GcRef::from_ptr(ptr)
         }
     }
-    pub fn get_ref<R: Rootable>(&self, root: GcRoot<R>) -> GcRef<'_, R::Root<'_>> {
+    pub fn get_ref<R: Root>(&self, root: GcRoot<R>) -> GcRef<'_, R::Ref<'_>> {
         unsafe {
             GcRef {
-                ptr: (*root.ptr.0).gc_ptr,
+                ptr: (*root.ptr).gc_ptr,
                 _phantom: PhantomData,
             }
         }
     }
-    pub fn root<R: Rootable>(&self, ref_: GcRef<'_, R::Root<'_>>) -> GcRoot<R> {
+    pub fn root<'gc, T: Rootable<'gc>>(&self, ref_: GcRef<'_, T>) -> GcRoot<T::Root> {
         unsafe {
             let mut state = self.lock();
             let node = alloc(Layout::new::<RootNode>()).cast::<RootNode>();
             (*node).gc_ptr = ref_.ptr;
-            (*node).prev = RootNodePtr::null();
+            (*node).trace = |ptr, worklist| T::trace(&GcRef::<T>::from_ptr(ptr), worklist);
+            (*node).prev = null_mut();
             (*node).next = state.roots;
             (*node).next = state.roots;
-            if !state.roots.0.is_null() {
-                (*state.roots.0).prev = RootNodePtr(node);
+            if !state.roots.is_null() {
+                (*state.roots).prev = node;
             }
-            state.roots = RootNodePtr(node);
+            state.roots = node;
             GcRoot {
-                ptr: RootNodePtr(node),
+                ptr: node,
                 _phantom: PhantomData,
             }
         }
     }
 }
 
-impl<R: Rootable> Drop for GcRoot<R> {
+impl<R: Root> Drop for GcRoot<R> {
     fn drop(&mut self) {
         unsafe {
-            let next = (*self.ptr.0).next;
-            let prev = (*self.ptr.0).prev;
-            if !next.0.is_null() {
-                (*next.0).prev = prev;
+            let next = (*self.ptr).next;
+            let prev = (*self.ptr).prev;
+            if !next.is_null() {
+                (*next).prev = prev;
             }
-            if !prev.0.is_null() {
-                (*prev.0).next = next;
+            if !prev.is_null() {
+                (*prev).next = next;
             }
-            dealloc(self.ptr.0.cast(), Layout::new::<RootNode>());
+            dealloc(self.ptr.cast(), Layout::new::<RootNode>());
         }
+    }
+}
+
+unsafe impl<T: Trace> Trace for Option<T> {
+    fn trace(this: &Self, work_list: &mut WorkList) {
+        if let Some(item) = this {
+            Trace::trace(item, work_list);
+        }
+    }
+}
+
+unsafe impl<'gc, T: Trace> Trace for GcRef<'gc, T> {
+    fn trace(this: &Self, work_list: &mut WorkList) {
+        work_list.queue(*this);
+    }
+}
+
+unsafe impl Trace for &str {
+    fn trace(_: &Self, _: &mut WorkList) {}
+}
+
+unsafe impl<T: Trace> Trace for RefCell<T> {
+    fn trace(this: &Self, work_list: &mut WorkList) {
+        T::trace(&this.borrow(), work_list);
     }
 }

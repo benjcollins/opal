@@ -1,57 +1,71 @@
-use opal::gc::{Gc, GcRef, Rootable, Trace};
+use std::{cell::RefCell, marker::PhantomData};
 
-struct PersonRoot;
+use opal::gc::{Gc, GcRef, Trace};
+use opal_proc::Trace;
 
-impl Rootable for PersonRoot {
-    type Root<'gc> = Person<'gc>;
+#[derive(Trace)]
+// #[root_ty_name(NodeRoot)]
+// #[root_ty_generics(<T: Trace>)]
+// #[gc_lifetime('gc)]
+struct Node<'gc, T: Trace> {
+    prev: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
+    payload: T,
+    next: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
 }
 
-struct Person<'gc> {
-    mother: Option<GcRef<'gc, Person<'gc>>>,
-    father: Option<GcRef<'gc, Person<'gc>>>,
-    name: &'static str,
-    age: u32,
-    children: Vec<GcRef<'gc, Person<'gc>>>,
+struct NodeRoot<T: Trace>(PhantomData<T>);
+
+impl<T: Trace> opal::gc::Root for NodeRoot<T> {
+    type Ref<'gc>
+        = Node<'gc, T>
+    where
+        T: 'gc;
 }
 
-unsafe impl<'m> Trace for Person<'m> {
-    fn trace(&self) {}
+impl<'gc, T: Trace> opal::gc::Rootable<'gc> for Node<'gc, T> {
+    type Root = NodeRoot<T>;
+}
+
+impl<'gc, T: Trace> Node<'gc, T> {
+    fn new(payload: T) -> Node<'gc, T> {
+        Node {
+            prev: RefCell::new(None),
+            payload,
+            next: RefCell::new(None),
+        }
+    }
+    fn set_prev(&self, prev: Option<GcRef<'gc, Node<'gc, T>>>) {
+        *self.prev.borrow_mut() = prev;
+    }
+    fn set_next(&self, next: Option<GcRef<'gc, Node<'gc, T>>>) {
+        *self.next.borrow_mut() = next;
+    }
 }
 
 fn main() {
-    let mut gc = Gc::init();
+    let mut gc = Gc::init().expect("could not acquire global gc");
 
-    let fred_root = {
-        let andy = gc.alloc(Person {
-            name: "Andy",
-            age: 67,
-            mother: None,
-            father: None,
-            children: vec![],
-        });
+    let a = gc.alloc(Node::new("A"));
+    let b = gc.alloc(Node::new("B"));
+    let c = gc.alloc(Node::new("C"));
 
-        let fred = gc.alloc(Person {
-            name: "Fred",
-            age: 33,
-            mother: None,
-            father: Some(andy),
-            children: vec![],
-        });
+    a.set_next(Some(b));
+    b.set_next(Some(c));
+    b.set_prev(Some(a));
+    c.set_prev(Some(b));
 
-        gc.root::<PersonRoot>(fred)
-    };
+    let root = gc.root(c);
+
+    println!("{}", gc.allocation_count());
 
     gc.collect();
 
-    let fred = gc.get_ref(fred_root);
-    let andy = fred.father.unwrap();
-
-    println!("{}", andy.name);
-    println!("{}", andy.age);
+    println!("{}", gc.allocation_count());
 }
 
 // garbage collector todo:
-// mark + sweep phases
-// derive macro for trace
+// mark + sweep phases [DONE]
+// derive macro for root [DONE]
+// derive macro for trace [DONE]
 // drop for gc type
 // array types
