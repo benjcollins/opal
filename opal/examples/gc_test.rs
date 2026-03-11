@@ -1,12 +1,9 @@
 use std::{cell::RefCell, marker::PhantomData};
 
-use opal::gc::{Gc, GcRef, Trace};
+use opal::gc::{Gc, GcRef, Rootable, Trace};
 use opal_proc::Trace;
 
 #[derive(Trace)]
-// #[root_ty_name(NodeRoot)]
-// #[root_ty_generics(<T: Trace>)]
-// #[gc_lifetime('gc)]
 struct Node<'gc, T: Trace> {
     prev: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
     payload: T,
@@ -15,15 +12,11 @@ struct Node<'gc, T: Trace> {
 
 struct NodeRoot<T: Trace>(PhantomData<T>);
 
-impl<T: Trace> opal::gc::Root for NodeRoot<T> {
-    type Ref<'gc>
+impl<T: Trace> Rootable for NodeRoot<T> {
+    type Root<'gc>
         = Node<'gc, T>
     where
         T: 'gc;
-}
-
-impl<'gc, T: Trace> opal::gc::Rootable<'gc> for Node<'gc, T> {
-    type Root = NodeRoot<T>;
 }
 
 impl<'gc, T: Trace> Node<'gc, T> {
@@ -54,7 +47,7 @@ fn main() {
     b.set_prev(Some(a));
     c.set_prev(Some(b));
 
-    let root = gc.root(c);
+    let root = gc.root::<NodeRoot<&'static str>>(b);
 
     println!("{}", gc.allocation_count());
 
@@ -65,7 +58,7 @@ fn main() {
 
 // garbage collector todo:
 // mark + sweep phases [DONE]
-// derive macro for root [DONE]
 // derive macro for trace [DONE]
 // drop for gc type
 // array types
+// derive macro for root
