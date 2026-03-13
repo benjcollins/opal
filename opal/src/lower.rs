@@ -39,7 +39,7 @@ pub struct CompiledFun {
     pub bytecode: Vec<Instr>,
 }
 
-pub fn lower_fun<'f>(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
+pub fn lower_fun(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),
@@ -272,7 +272,7 @@ impl Lowerer {
             BitwiseOp::ShiftRight => self.bytecode.instr().shr(dst, src1, src2),
         }
     }
-    fn lower_expr_array_elements_dst(&mut self, elements: &Vec<TypedExpr>, dst: Reg) {
+    fn lower_expr_array_elements_dst(&mut self, elements: &[TypedExpr], dst: Reg) {
         let length = self.get_const(Value::from_int(elements.len() as i64));
         self.bytecode.instr().array_new(dst, Val::Cst(length));
         for (index, element) in elements.iter().enumerate() {

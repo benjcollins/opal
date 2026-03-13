@@ -70,7 +70,7 @@ fn instantiate(map: &mut HashMap<Ident, Type>, arg: &Type, param: &Type) -> Resu
         (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) => Ok(()),
         (Type::Numeric(a), Type::Numeric(b)) if a == b => Ok(()),
         (Type::Array(a), Type::Array(b)) => instantiate(map, a, b),
-        (Type::Fun(sig1), Type::Fun(sig2)) => todo!(),
+        (Type::Fun(_), Type::Fun(_)) => todo!(),
         (ty, Type::Generic(name)) => match map.entry(name.clone()) {
             Entry::Occupied(entry) if entry.get() == ty => Ok(()),
             Entry::Vacant(entry) => {
@@ -227,10 +227,10 @@ impl<'e> Inferer<'e> {
         Ok(match stmt {
             Stmt::Let { var, ty, expr } => {
                 let (expr, expr_ty) = self.infer_expr(expr)?;
-                if let Some(ty) = ty {
-                    if expr_ty != ty.try_into().map_err(|_| TypeError("could not convert type"))? {
-                        return Err(TypeError("wrong type annotation!"));
-                    }
+                if let Some(ty) = ty
+                    && expr_ty != ty.try_into().map_err(|_| TypeError("could not convert type"))?
+                {
+                    return Err(TypeError("wrong type annotation!"));
                 }
                 let var = self.insert_var(var, expr_ty);
                 (TypedStmt::Let { var, expr }, false)

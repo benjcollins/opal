@@ -266,12 +266,12 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_expr_call(&mut self, expr: Expr) -> Result<Expr, Recovered> {
         let args = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
-        return Ok(Expr::Call(Box::new(expr), args));
+        Ok(Expr::Call(Box::new(expr), args))
     }
     pub fn parse_expr_index(&mut self, expr: Expr) -> Result<Expr, Recovered> {
         let index = self.parse_expr(0)?;
         self.expect(Symbol::CloseBracket)?;
-        return Ok(Expr::Index(Box::new(expr), Box::new(index)));
+        Ok(Expr::Index(Box::new(expr), Box::new(index)))
     }
     pub fn parse_expr(&mut self, prec: Prec) -> Result<Expr, Recovered> {
         let mut left = None;
@@ -380,7 +380,7 @@ impl<'s, 'p> Parser<'s, 'p> {
             }
         }
         self.expect(Symbol::Semicolon)?;
-        return Ok(Stmt::Expr(expr));
+        Ok(Stmt::Expr(expr))
     }
     pub fn parse_block(&mut self) -> Result<Block, Recovered> {
         self.expect(Symbol::OpenBrace)?;

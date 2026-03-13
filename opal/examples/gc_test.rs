@@ -1,23 +1,19 @@
 use std::{cell::RefCell, marker::PhantomData};
 
-use opal::gc::{Gc, GcRef, Rootable, Trace};
-use opal_proc::Trace;
+use opal::gc::{Gc, GcRef, GcSlice, Trace};
+use opal_proc::{Rootable, Trace};
 
 #[derive(Trace)]
-struct Node<'gc, T: Trace> {
+struct Node<'gc, T> {
     prev: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
     payload: T,
     next: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
 }
 
-struct NodeRoot<T: Trace>(PhantomData<T>);
-
-impl<T: Trace> Rootable for NodeRoot<T> {
-    type Root<'gc>
-        = Node<'gc, T>
-    where
-        T: 'gc;
-}
+#[derive(Rootable)]
+#[lifetime('gc)]
+#[root(Node<'gc, T>)]
+struct NodeRoot<T: 'static>(PhantomData<T>);
 
 impl<'gc, T: Trace> Node<'gc, T> {
     fn new(payload: T) -> Node<'gc, T> {
@@ -35,19 +31,45 @@ impl<'gc, T: Trace> Node<'gc, T> {
     }
 }
 
+#[derive(Trace, Clone, Copy)]
+struct Tree<'gc, T: Trace> {
+    payload: T,
+    children: GcSlice<'gc, GcRef<'gc, Tree<'gc, T>>>,
+}
+
+#[derive(Rootable)]
+#[lifetime('gc)]
+#[root(Tree<'gc, T>)]
+struct TreeRoot<T: Trace + 'static>(PhantomData<T>);
+
 fn main() {
     let mut gc = Gc::init().expect("could not acquire global gc");
 
-    let a = gc.alloc(Node::new("A"));
-    let b = gc.alloc(Node::new("B"));
-    let c = gc.alloc(Node::new("C"));
+    let a = gc.alloc(Tree {
+        payload: "A",
+        children: gc.alloc_slice(&[]),
+    });
+    let b = gc.alloc(Tree {
+        payload: "B",
+        children: gc.alloc_slice(&[]),
+    });
+    let c = gc.alloc(Tree {
+        payload: "C",
+        children: gc.alloc_slice(&[a, b]),
+    });
 
-    a.set_next(Some(b));
-    b.set_next(Some(c));
-    b.set_prev(Some(a));
-    c.set_prev(Some(b));
+    let data: GcSlice<'_, i32> = gc.alloc_slice(&[1, 2, 3]);
 
-    let root = gc.root::<NodeRoot<&'static str>>(b);
+    // let a = gc.alloc(Node::new("A"));
+    // let b = gc.alloc(Node::new("B"));
+    // let c = gc.alloc(Node::new("C"));
+
+    // a.set_next(Some(b));
+    // b.set_next(Some(c));
+    // b.set_prev(Some(a));
+    // c.set_prev(Some(b));
+
+    let root = gc.root::<TreeRoot<_>>(c);
 
     println!("{}", gc.allocation_count());
 
@@ -59,6 +81,8 @@ fn main() {
 // garbage collector todo:
 // mark + sweep phases [DONE]
 // derive macro for trace [DONE]
+// slice types [DONE]
+// derive macro for root [DONE]
+// optimisation to skip elements with no gc refs [DONE]
 // drop for gc type
-// array types
-// derive macro for root
+// trace for enums

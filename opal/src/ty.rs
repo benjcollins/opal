@@ -98,7 +98,7 @@ impl<'a> From<&BorrowedType<'a>> for Type {
             BorrowedType::Array(ty) => Type::Array(Box::new(ty.into())),
             BorrowedType::Fun(params, returns) => Type::Fun(FunSig {
                 generics: vec![],
-                params: Vec::from_iter(params.into_iter().map(|ty| ty.into())),
+                params: Vec::from_iter(params.iter().map(|ty| ty.into())),
                 returns: Box::new(returns.into()),
             }),
             BorrowedType::Generic(name) => Type::Generic(Ident::new(name)),

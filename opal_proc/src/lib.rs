@@ -2,7 +2,8 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
-    Attribute, Data, DeriveInput, FnArg, Generics, ItemFn, Lifetime, ReturnType, parse::Parse, parse_macro_input,
+    Attribute, Data, DeriveInput, FnArg, GenericParam, ItemFn, Lifetime, ReturnType, Type, parse::Parse,
+    parse_macro_input, parse_quote,
 };
 
 fn get_attr<T: Parse>(name: &str, attrs: &[Attribute]) -> Option<T> {
@@ -12,28 +13,18 @@ fn get_attr<T: Parse>(name: &str, attrs: &[Attribute]) -> Option<T> {
         .map(|attr| attr.parse_args::<T>().unwrap())
 }
 
-#[proc_macro_derive(Root, attributes(gc_lifetime, root_ty_name, root_ty_generics))]
+#[proc_macro_derive(Rootable, attributes(lifetime, root, clause))]
 pub fn root(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let gc_lifetime =
-        get_attr::<Lifetime>("gc_lifetime", &input.attrs).unwrap_or(Lifetime::new("'gc", Span::call_site()));
-    let root_ty_name = get_attr::<Ident>("root_ty_name", &input.attrs).unwrap();
-    let root_ty_generics_def = get_attr::<Generics>("root_ty_generics", &input.attrs).unwrap();
-    let (root_impl_generics, root_ty_generics, root_where_clause) = root_ty_generics_def.split_for_impl();
+    let gc_lifetime = get_attr::<Lifetime>("lifetime", &input.attrs).unwrap_or(Lifetime::new("'gc", Span::call_site()));
+    let root_ty = get_attr::<Type>("root", &input.attrs).unwrap();
 
     let output = quote! {
-
-        struct #root_ty_name #root_ty_generics_def;
-
-        impl #root_impl_generics opal::gc::Root for #root_ty_name #root_ty_generics #root_where_clause {
-            type Ref<#gc_lifetime> = #name #ty_generics;
-        }
-
-        impl #impl_generics opal::gc::Rootable<#gc_lifetime> for #name #ty_generics #where_clause {
-            type Root = #root_ty_name #root_ty_generics;
+        impl #impl_generics opal::gc::Rootable for #name #ty_generics #where_clause {
+            type Root<#gc_lifetime> = #root_ty;
         }
     };
 
@@ -42,22 +33,35 @@ pub fn root(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(Trace)]
 pub fn trace(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+    let mut input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
+
+    for param in &mut input.generics.params {
+        if let GenericParam::Type(type_param) = param {
+            type_param.bounds.push(parse_quote!(opal::gc::Trace));
+        }
+    }
+
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = match input.data {
         Data::Struct(data_struct) => {
             let field_name = data_struct.fields.iter().map(|field| field.ident.clone());
             let field_ty = data_struct.fields.iter().map(|field| field.ty.clone());
+            let field_ty_clone = field_ty.clone();
             quote! {
                 unsafe impl #impl_generics opal::gc::Trace for #name #ty_generics #where_clause {
+                    const TRACE: bool = #(<#field_ty as opal::gc::Trace>::TRACE)||*;
+
                     fn trace(this: &Self, work_list: &mut opal::gc::WorkList) {
                         #(
-                            <#field_ty as opal::gc::Trace>::trace(&this.#field_name, work_list);
+                            <#field_ty_clone as opal::gc::Trace>::trace(&this.#field_name, work_list);
                         )*
                     }
                 }
             }
+        }
+        Data::Enum(data_enum) => {
+            todo!()
         }
         _ => panic!(),
     };
