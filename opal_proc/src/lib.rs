@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
     Attribute, Data, DeriveInput, FnArg, GenericParam, ItemFn, Lifetime, ReturnType, Type, parse::Parse,
     parse_macro_input, parse_quote,
@@ -45,23 +45,50 @@ pub fn trace(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = match input.data {
         Data::Struct(data_struct) => {
-            let field_name = data_struct.fields.iter().map(|field| field.ident.clone());
+            let member = data_struct.fields.members();
             let field_ty = data_struct.fields.iter().map(|field| field.ty.clone());
-            let field_ty_clone = field_ty.clone();
             quote! {
                 unsafe impl #impl_generics opal::gc::Trace for #name #ty_generics #where_clause {
                     const TRACE: bool = #(<#field_ty as opal::gc::Trace>::TRACE)||*;
 
                     fn trace(this: &Self, work_list: &mut opal::gc::WorkList) {
                         #(
-                            <#field_ty_clone as opal::gc::Trace>::trace(&this.#field_name, work_list);
+                            opal::gc::Trace::trace(&this.#member, work_list);
                         )*
                     }
                 }
             }
         }
         Data::Enum(data_enum) => {
-            todo!()
+            let ty = data_enum
+                .variants
+                .iter()
+                .flat_map(|variant| variant.fields.iter().map(|field| field.ty.clone()));
+
+            let match_variant = data_enum.variants.iter().map(|variant| {
+                let variant_name = variant.ident.clone();
+                let member = variant.fields.members();
+                let var_name: Vec<_> = (0..variant.fields.len()).map(|id| format_ident!("_{}", id)).collect();
+                quote! {
+                    #name::#variant_name { #(#member: #var_name),* } => {
+                        #(
+                            opal::gc::Trace::trace(#var_name, work_list);
+                        )*
+                    }
+                }
+            });
+
+            quote! {
+                unsafe impl #impl_generics opal::gc::Trace for #name #ty_generics #where_clause {
+                    const TRACE: bool = #(<#ty as opal::gc::Trace>::TRACE)||*;
+
+                    fn trace(this: &Self, work_list: &mut opal::gc::WorkList) {
+                        match this {
+                            #(#match_variant)*
+                        }
+                    }
+                }
+            }
         }
         _ => panic!(),
     };

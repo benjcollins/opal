@@ -1,13 +1,13 @@
 use std::{cell::RefCell, marker::PhantomData};
 
-use opal::gc::{Gc, GcRef, GcSlice, Trace};
+use opal::gc::{GlobalGc, Trace, ref_::Gc};
 use opal_proc::{Rootable, Trace};
 
 #[derive(Trace)]
 struct Node<'gc, T> {
-    prev: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
+    prev: RefCell<Option<Gc<'gc, Node<'gc, T>>>>,
     payload: T,
-    next: RefCell<Option<GcRef<'gc, Node<'gc, T>>>>,
+    next: RefCell<Option<Gc<'gc, Node<'gc, T>>>>,
 }
 
 #[derive(Rootable)]
@@ -23,10 +23,10 @@ impl<'gc, T: Trace> Node<'gc, T> {
             next: RefCell::new(None),
         }
     }
-    fn set_prev(&self, prev: Option<GcRef<'gc, Node<'gc, T>>>) {
+    fn set_prev(&self, prev: Option<Gc<'gc, Node<'gc, T>>>) {
         *self.prev.borrow_mut() = prev;
     }
-    fn set_next(&self, next: Option<GcRef<'gc, Node<'gc, T>>>) {
+    fn set_next(&self, next: Option<Gc<'gc, Node<'gc, T>>>) {
         *self.next.borrow_mut() = next;
     }
 }
@@ -34,7 +34,7 @@ impl<'gc, T: Trace> Node<'gc, T> {
 #[derive(Trace, Clone, Copy)]
 struct Tree<'gc, T: Trace> {
     payload: T,
-    children: GcSlice<'gc, GcRef<'gc, Tree<'gc, T>>>,
+    children: Gc<'gc, [Gc<'gc, Tree<'gc, T>>]>,
 }
 
 #[derive(Rootable)]
@@ -43,33 +43,32 @@ struct Tree<'gc, T: Trace> {
 struct TreeRoot<T: Trace + 'static>(PhantomData<T>);
 
 fn main() {
-    let mut gc = Gc::init().expect("could not acquire global gc");
+    let mut gc = GlobalGc::init().expect("could not acquire global gc");
 
-    let a = gc.alloc(Tree {
+    let a_tree = gc.alloc(Tree {
         payload: "A",
         children: gc.alloc_slice(&[]),
     });
-    let b = gc.alloc(Tree {
+    let b_tree = gc.alloc(Tree {
         payload: "B",
         children: gc.alloc_slice(&[]),
     });
-    let c = gc.alloc(Tree {
+    let c_tree = gc.alloc(Tree {
         payload: "C",
-        children: gc.alloc_slice(&[a, b]),
+        children: gc.alloc_slice(&[a_tree, b_tree]),
     });
 
-    let data: GcSlice<'_, i32> = gc.alloc_slice(&[1, 2, 3]);
+    let a = gc.alloc(Node::new("A"));
+    let b = gc.alloc(Node::new("B"));
+    let c = gc.alloc(Node::new("C"));
 
-    // let a = gc.alloc(Node::new("A"));
-    // let b = gc.alloc(Node::new("B"));
-    // let c = gc.alloc(Node::new("C"));
+    a.set_next(Some(b));
+    b.set_next(Some(c));
+    b.set_prev(Some(a));
+    c.set_prev(Some(b));
 
-    // a.set_next(Some(b));
-    // b.set_next(Some(c));
-    // b.set_prev(Some(a));
-    // c.set_prev(Some(b));
-
-    let root = gc.root::<TreeRoot<_>>(c);
+    let root = gc.root::<NodeRoot<_>>(c);
+    let root2 = gc.root::<TreeRoot<_>>(c_tree);
 
     println!("{}", gc.allocation_count());
 

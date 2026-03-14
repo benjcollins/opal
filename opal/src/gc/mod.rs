@@ -1,13 +1,16 @@
-use core::slice;
+pub mod ref_;
+
 use std::{
     alloc::{Layout, alloc, dealloc},
     cell::RefCell,
     collections::VecDeque,
     marker::PhantomData,
-    ops::Deref,
-    ptr::null_mut,
+    mem::{align_of_val_raw, size_of_val_raw},
+    ptr::{self, Pointee, copy, null_mut},
     sync::{Mutex, MutexGuard, Once},
 };
+
+use ref_::Gc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcPtr(*mut u8);
@@ -19,37 +22,12 @@ struct AllocHeader {
     marked: bool,
 }
 
-pub struct GcRef<'gc, T> {
-    ptr: GcPtr,
-    _phantom: PhantomData<&'gc T>,
-}
-
-pub struct GcSlice<'gc, T> {
-    ptr: GcPtr,
-    _phantom: PhantomData<&'gc T>,
-}
-
-impl<'gc, T> Clone for GcRef<'gc, T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'gc, T> Clone for GcSlice<'gc, T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'gc, T> Copy for GcRef<'gc, T> {}
-impl<'gc, T> Copy for GcSlice<'gc, T> {}
-
 pub struct GcRoot<R: Rootable> {
     ptr: *mut RootNode,
     _phantom: PhantomData<R>,
 }
 
-pub struct Gc(Mutex<GcState>);
+pub struct GlobalGc(Mutex<GcState>);
 
 #[derive(Debug)]
 pub struct WorkList {
@@ -111,73 +89,18 @@ impl GcPtr {
     fn header(self) -> *mut AllocHeader {
         self.0.cast::<AllocHeader>()
     }
-    fn data(self) -> *mut u8 {
-        unsafe { self.0.add(size_of::<AllocHeader>()) }
+    fn ptr_metadata<T: Pointee + ?Sized>(self) -> *mut T::Metadata {
+        let (_, offset) = Layout::new::<AllocHeader>()
+            .extend(Layout::new::<T::Metadata>())
+            .unwrap();
+        unsafe { self.0.add(offset).cast() }
     }
-}
-
-impl<'gc, T: Trace> GcRef<'gc, T> {
-    pub unsafe fn from_ptr(ptr: GcPtr) -> GcRef<'gc, T> {
-        GcRef {
-            ptr,
-            _phantom: PhantomData,
-        }
-    }
-    pub fn as_ptr(self) -> GcPtr {
-        self.ptr
-    }
-    pub fn as_traceable_ptr(self) -> TraceablePtr {
-        unsafe {
-            TraceablePtr {
-                ptr: self.as_ptr(),
-                trace: T::TRACE.then_some(|ptr, work_list| T::trace(&GcRef::from_ptr(ptr), work_list)),
-            }
-        }
-    }
-}
-
-impl<'gc, T: Trace> GcSlice<'gc, T> {
-    pub unsafe fn from_ptr(ptr: GcPtr) -> GcSlice<'gc, T> {
-        GcSlice {
-            ptr,
-            _phantom: PhantomData,
-        }
-    }
-    pub fn as_ptr(self) -> GcPtr {
-        self.ptr
-    }
-    pub fn as_traceable_ptr(self) -> TraceablePtr {
-        unsafe {
-            TraceablePtr {
-                ptr: self.as_ptr(),
-                trace: T::TRACE.then_some(|ptr, work_list| {
-                    let slice = GcSlice::<T>::from_ptr(ptr);
-                    for item in slice.iter() {
-                        T::trace(item, work_list);
-                    }
-                }),
-            }
-        }
-    }
-}
-
-impl<'gc, T> Deref for GcRef<'gc, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.ptr.data().cast::<T>().as_ref().unwrap() }
-    }
-}
-
-impl<'gc, T> Deref for GcSlice<'gc, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            let len_ptr = self.ptr.data().cast::<usize>();
-            let data_ptr = len_ptr.add(1).cast::<T>();
-            slice::from_raw_parts(data_ptr, *len_ptr)
-        }
+    fn data<T: Pointee + ?Sized>(self) -> *mut u64 {
+        let (layout, _) = Layout::new::<AllocHeader>()
+            .extend(Layout::new::<T::Metadata>())
+            .unwrap();
+        let offset = layout.align_to(HEAP_ALIGN).unwrap().pad_to_align().size();
+        unsafe { self.0.add(offset).cast() }
     }
 }
 
@@ -256,23 +179,22 @@ impl GcState {
                     } else {
                         (*prev.header()).next = (*cur.header()).next;
                     }
-                    dealloc(cur.0, layout((*cur.header()).size));
+                    let layout = Layout::from_size_align((*cur.header()).size, HEAP_ALIGN).unwrap();
+                    dealloc(cur.0, layout);
                 }
             }
         }
     }
 }
 
-fn layout(size: usize) -> Layout {
-    Layout::from_size_align(size_of::<AllocHeader>() + size, align_of::<AllocHeader>()).unwrap()
-}
+const HEAP_ALIGN: usize = align_of::<u64>();
 
-impl Gc {
-    pub fn init() -> Option<Gc> {
+impl GlobalGc {
+    pub fn init() -> Option<GlobalGc> {
         static INIT: Once = Once::new();
         let mut gc = None;
         INIT.call_once(|| {
-            gc = Some(Gc(Mutex::new(GcState {
+            gc = Some(GlobalGc(Mutex::new(GcState {
                 objects: GcPtr::null(),
                 roots: null_mut(),
             })))
@@ -291,42 +213,49 @@ impl Gc {
         state.mark();
         state.sweep();
     }
-    unsafe fn alloc_raw(&self, size: usize) -> GcPtr {
+    pub unsafe fn alloc_raw<T: Trace + ?Sized>(&self, value: *const T) -> Gc<'_, T> {
         unsafe {
+            assert!(align_of_val_raw(value) <= HEAP_ALIGN);
             let mut state = self.lock();
-            let ptr = GcPtr(alloc(Layout::from_size_align_unchecked(size_of::<AllocHeader>() + size, 8)).cast());
-            (*ptr.header()).next = state.objects;
-            (*ptr.header()).size = size;
-            state.objects = ptr;
-            ptr
+            let (src_ptr, metadata) = value.to_raw_parts();
+            let layout = Layout::new::<AllocHeader>();
+            let (layout, _) = layout.extend(Layout::new::<<T as Pointee>::Metadata>()).unwrap();
+            let layout = layout.align_to(HEAP_ALIGN).unwrap().pad_to_align();
+            let data_layout = Layout::from_size_align(size_of_val_raw(value), HEAP_ALIGN).unwrap();
+            let (layout, _) = layout.extend(data_layout).unwrap();
+
+            let dst_ptr = GcPtr(alloc(layout));
+            (*dst_ptr.header()).size = size_of_val(&value);
+            (*dst_ptr.header()).next = state.objects;
+            state.objects = dst_ptr;
+
+            *dst_ptr.ptr_metadata::<T>() = metadata;
+
+            copy(
+                src_ptr.cast::<u64>(),
+                dst_ptr.data::<T>().cast::<u64>(),
+                data_layout.pad_to_align().size() / HEAP_ALIGN,
+            );
+
+            Gc::from_ptr(dst_ptr)
         }
     }
-    pub fn alloc<T: Trace>(&self, value: T) -> GcRef<'_, T> {
-        unsafe {
-            let ptr = self.alloc_raw(size_of::<T>());
-            *ptr.data().cast::<T>() = value;
-            GcRef::from_ptr(ptr)
-        }
+    pub fn alloc<T: Trace>(&self, value: T) -> Gc<'_, T> {
+        unsafe { self.alloc_raw(ptr::from_ref(&value)) }
     }
-    pub fn alloc_slice<T: Trace + Clone>(&self, values: &[T]) -> GcSlice<'_, T> {
-        unsafe {
-            let ptr = self.alloc_raw(size_of::<usize>() + size_of_val(values));
-            *ptr.data().cast::<usize>() = values.len();
-            for (index, value) in values.iter().enumerate() {
-                *ptr.data().add(size_of::<usize>()).cast::<T>().add(index) = value.clone();
-            }
-            GcSlice::from_ptr(ptr)
-        }
+    pub fn alloc_slice<T: Trace + Copy + Clone + ?Sized>(&self, values: &[T]) -> Gc<'_, [T]> {
+        unsafe { self.alloc_raw(ptr::from_ref(values)) }
     }
-    pub fn get_ref<R: Rootable>(&self, root: GcRoot<R>) -> GcRef<'_, R::Root<'_>> {
-        unsafe {
-            GcRef {
-                ptr: (*root.ptr).traceable_ptr.ptr,
-                _phantom: PhantomData,
-            }
-        }
+    pub fn alloc_boxed_slice<T: Trace + ?Sized>(&self, values: Box<T>) -> Gc<'_, T> {
+        unsafe { self.alloc_raw(Box::as_ptr(&values)) }
     }
-    pub fn root<'gc, R: Rootable>(&self, ref_: GcRef<'gc, R::Root<'gc>>) -> GcRoot<R>
+    pub fn alloc_str(&self, s: &str) -> Gc<'_, str> {
+        unsafe { self.alloc_raw(ptr::from_ref(s)) }
+    }
+    pub fn get_ref<R: Rootable>(&self, root: GcRoot<R>) -> Gc<'_, R::Root<'_>> {
+        unsafe { Gc::from_ptr((*root.ptr).traceable_ptr.ptr) }
+    }
+    pub fn root<'gc, R: Rootable>(&self, ref_: Gc<'gc, R::Root<'gc>>) -> GcRoot<R>
     where
         R::Root<'gc>: Trace,
     {
@@ -375,7 +304,7 @@ unsafe impl<T: Trace> Trace for Option<T> {
     }
 }
 
-unsafe impl<'gc, T: Trace> Trace for GcRef<'gc, T> {
+unsafe impl<'gc, T: Trace + ?Sized> Trace for Gc<'gc, T> {
     const TRACE: bool = true;
 
     fn trace(this: &Self, work_list: &mut WorkList) {
@@ -383,11 +312,13 @@ unsafe impl<'gc, T: Trace> Trace for GcRef<'gc, T> {
     }
 }
 
-unsafe impl<'gc, T: Trace> Trace for GcSlice<'gc, T> {
+unsafe impl<'gc, T: Trace> Trace for [T] {
     const TRACE: bool = true;
 
     fn trace(this: &Self, work_list: &mut WorkList) {
-        work_list.add(this.as_traceable_ptr());
+        for elem in this {
+            T::trace(elem, work_list);
+        }
     }
 }
 
@@ -407,4 +338,9 @@ unsafe impl<T: Trace> Trace for RefCell<T> {
     fn trace(this: &Self, work_list: &mut WorkList) {
         T::trace(&this.borrow(), work_list);
     }
+}
+
+unsafe impl Trace for str {
+    const TRACE: bool = false;
+    fn trace(_: &Self, _: &mut WorkList) {}
 }
