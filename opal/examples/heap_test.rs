@@ -1,12 +1,17 @@
-use opal::heap2::{FunObjectRef, Heap, HeapObject};
+use opal::heap2::Heap;
 
 fn main() {
-    let heap = Heap::init().expect("could not create heap");
+    let mut heap = Heap::init().expect("could not create heap");
 
-    let object = heap.alloc::<FunObjectRef>(());
+    let thing = heap.alloc_native(Custom(5));
 
-    let instrs = object.instrs();
+    heap.collect_garbage();
+}
 
-    let x = object.upcast();
-    let p = x.downcast::<FunObjectRef>().unwrap();
+struct Custom(u32);
+
+impl Drop for Custom {
+    fn drop(&mut self) {
+        println!("{}", self.0)
+    }
 }

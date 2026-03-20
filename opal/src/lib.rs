@@ -1,9 +1,5 @@
-#![feature(layout_for_ptr)]
-#![feature(ptr_metadata)]
-#![feature(box_as_ptr)]
 pub mod ast;
 pub mod bytecode;
-pub mod gc;
 pub mod heap;
 pub mod heap2;
 pub mod infer;
