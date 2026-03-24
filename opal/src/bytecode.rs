@@ -44,7 +44,7 @@ impl<L: Hash + Eq> BytecodeBuffer<L> {
     pub fn label(&mut self, label: L) {
         self.labels.insert(label, self.buffer.len());
     }
-    pub fn finish(mut self) -> Vec<Instr> {
+    pub fn finish(mut self) -> Box<[Instr]> {
         for (jump_index, label) in self.jumps {
             let target_index = *self.labels.get(&label).expect("label not defined!");
             self.buffer[jump_index].set_jump_offset((target_index as isize - jump_index as isize) as i16);
@@ -53,7 +53,7 @@ impl<L: Hash + Eq> BytecodeBuffer<L> {
             let target_index = *self.labels.get(&label).expect("label not defined!");
             self.buffer[branch_index].set_branch_offset((target_index as isize - branch_index as isize) as i8);
         }
-        self.buffer
+        self.buffer.into_boxed_slice()
     }
 }
 

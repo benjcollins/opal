@@ -1,7 +1,7 @@
 abs:
   FBLte r(0), c(0), 2;
   Ret r(0);
-  FSub r(1), c(0), r(0);
+  FSub r(1), c(1), r(0);
   Ret r(1);
 
 approx_square_root:
@@ -10,8 +10,8 @@ approx_square_root:
   IBLte r(1), r(3), 6;
   FDiv r(5), r(0), r(2);
   FAdd r(4), r(2), r(5);
-  FDiv r(2), r(4), c(0);
-  IAdd r(3), r(3), c(2);
+  FDiv r(2), r(4), c(2);
+  IAdd r(3), r(3), c(3);
   Jump -5;
   Ret r(2);
 

@@ -4,10 +4,10 @@ fun generate_sieve(size: Int) -> Array[Bool] {
     let sieve = [false; size];
     let i = 2;
     while (i < len(sieve)) {
-        let j = i;
+        let j = i * 2;
         while (j < len(sieve)) {
-            j += i;
             sieve[j] := true;
+            j += i;
         }
         i += 1;
     }

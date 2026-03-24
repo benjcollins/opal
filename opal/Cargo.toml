@@ -8,11 +8,14 @@ elsa = "1.11.2"
 strum = { version = "0.27.2", features = ["derive"] }
 opal_proc = { path = "../opal_proc" }
 colored = "3.1.1"
-libc = "0.2.182"
 
 [dev-dependencies]
 libtest-mimic = "0.8.1"
 opal_proc = { path = "../opal_proc" }
+
+[lib]
+test = false
+doctest = false
 
 [[test]]
 name = "integration"

@@ -1,11 +1,11 @@
 count_ones:
   Mov r(1), c(0);
-  BEq r(0), c(0), 7;
-  And r(2), r(0), c(1);
-  BNEq r(2), c(0), 2;
+  BEq r(0), c(1), 7;
+  And r(2), r(0), c(2);
+  BNEq r(2), c(3), 2;
   Jump 2;
-  IAdd r(1), r(1), c(1);
-  ShiftRight r(0), r(0), c(1);
+  IAdd r(1), r(1), c(4);
+  ShiftRight r(0), r(0), c(5);
   Jump -6;
   Ret r(1);
 

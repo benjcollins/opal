@@ -1,24 +1,24 @@
 fib_loop:
   Mov r(1), c(0);
   Mov r(2), c(1);
-  Mov r(3), c(0);
+  Mov r(3), c(2);
   IBLte r(0), r(1), 6;
   Mov r(4), r(2);
   IAdd r(2), r(2), r(3);
   Mov r(3), r(4);
-  IAdd r(1), r(1), c(1);
+  IAdd r(1), r(1), c(3);
   Jump -5;
   Ret r(3);
 
 fib_rec:
   BNEq r(0), c(0), 2;
-  Ret c(0);
-  BNEq r(0), c(1), 2;
   Ret c(1);
-  ISub r(3), r(0), c(1);
-  Call r(2), c(2), 3;
-  ISub r(4), r(0), c(4);
-  Call r(3), c(3), 4;
+  BNEq r(0), c(2), 2;
+  Ret c(3);
+  ISub r(3), r(0), c(5);
+  Call r(2), c(4), 3;
+  ISub r(4), r(0), c(7);
+  Call r(3), c(6), 4;
   IAdd r(1), r(2), r(3);
   Ret r(1);
 

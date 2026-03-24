@@ -9,8 +9,8 @@ use opal::value::Array;
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
-    let heap = Heap::new();
-    let mut runtime = Runtime::new(&heap);
+    let heap = Heap::new().unwrap();
+    let mut runtime = Runtime::new(heap);
 
     runtime.register_native_fun(len);
     runtime.register_native_fun(print_array);
@@ -18,6 +18,7 @@ fn main() -> ExitCode {
     runtime.register_native_fun(print_float);
     runtime.register_native_fun(print_bool);
     runtime.register_native_fun(reverse);
+    runtime.register_native_fun(print);
 
     let path = Path::new("../examples/example.opal");
     let source = fs::read_to_string(path).unwrap();
@@ -36,6 +37,12 @@ fn main() -> ExitCode {
     runtime.execute_fun("main").unwrap();
 
     ExitCode::SUCCESS
+}
+
+#[opal_proc::fun]
+fn print<T>(item: T) -> Result<(), RuntimeError> {
+    println!("{}", item.0);
+    Ok(())
 }
 
 #[opal_proc::fun]

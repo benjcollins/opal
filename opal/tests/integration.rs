@@ -48,8 +48,8 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     assert!(errors.is_empty());
     let module = module.unwrap();
 
-    let heap = Heap::new();
-    let mut runtime = Runtime::new(&heap);
+    let heap = Heap::new().unwrap();
+    let mut runtime = Runtime::new(heap);
 
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print_float);
@@ -65,16 +65,15 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     let path = format!("tests/output/{}.asm", module.name.0);
     if !fs::exists(&path)? {
         let mut file = File::create(&path)?;
-        let mut fun_names: Vec<_> = runtime.funs.keys().collect();
+        let funs = runtime.funs.borrow();
+        let mut fun_names: Vec<_> = funs.keys().collect();
         fun_names.sort_by_key(|name| name.0.as_str());
         for name in fun_names {
-            let fun = runtime.funs.get(name).unwrap();
+            let fun = funs.get(name).unwrap();
             if let Fun::Compiled(fun) = fun {
-                let fun_lock = fun.lock();
-                let bytecode = fun_lock.get().get(0).as_pointer().as_object_bytecode();
                 writeln!(file, "{}:", name.0)?;
-                for i in 0..bytecode.len() {
-                    writeln!(file, "  {}", bytecode.get(i))?;
+                for i in 0..fun.bytecode.len() {
+                    writeln!(file, "  {}", fun.bytecode[i])?;
                 }
                 writeln!(file)?;
             }

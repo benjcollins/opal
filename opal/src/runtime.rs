@@ -1,17 +1,19 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
+
+use elsa::FrozenVec;
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::{Bytecode, Heap, Object, RootedObject, Values},
+    heap::{Array, Heap, Object},
     infer::infer_fun,
-    lower::lower_fun,
+    lower::{CompiledFun, lower_fun},
     ty::{BorrowedType, FunSig, Type},
-    value::{Pointer, Value},
+    value::{StaticValue, Value},
     vm::{ControlFlow, RuntimeError, VM},
 };
 
 pub type NativeFun =
-    for<'a> fn(value_stack: Object<'a, Values>, value_stack_base: usize) -> Result<Value<'a>, RuntimeError>;
+    for<'m, 's> fn(value_stack: Object<'m, Array<'s>>, value_stack_base: usize) -> Result<Value<'m, 's>, RuntimeError>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TypedNativeFun {
@@ -32,32 +34,35 @@ impl TypedNativeFun {
     }
 }
 
-pub struct Runtime<'h> {
-    heap: &'h Heap,
-    fun_sigs: HashMap<Ident, FunSig>,
-    pub funs: HashMap<Ident, Fun<'h>>,
+pub struct Runtime<'s> {
+    compiled_funs: FrozenVec<Box<CompiledFun<'s>>>,
+    heap: Heap,
+    fun_sigs: RefCell<HashMap<Ident, FunSig>>,
+    pub funs: RefCell<HashMap<Ident, Fun<'s>>>,
 }
 
-pub enum Fun<'h> {
+#[derive(Debug, Clone, Copy)]
+pub enum Fun<'s> {
     Native(NativeFun),
-    Compiled(RootedObject<'h, Values>),
+    Compiled(&'s CompiledFun<'s>),
 }
 
-impl<'h> Runtime<'h> {
-    pub fn new(heap: &'h Heap) -> Runtime<'h> {
+impl<'s> Runtime<'s> {
+    pub fn new(heap: Heap) -> Runtime<'s> {
         Runtime {
             heap,
-            fun_sigs: HashMap::new(),
-            funs: HashMap::new(),
+            fun_sigs: RefCell::new(HashMap::new()),
+            funs: RefCell::new(HashMap::new()),
+            compiled_funs: FrozenVec::new(),
         }
     }
     pub fn register_native_fun(&mut self, fun: TypedNativeFun) {
-        self.fun_sigs.insert(Ident::new(fun.name), fun.sig());
-        self.funs.insert(Ident::new(fun.name), Fun::Native(fun.fun));
+        self.fun_sigs.borrow_mut().insert(Ident::new(fun.name), fun.sig());
+        self.funs
+            .borrow_mut()
+            .insert(Ident::new(fun.name), Fun::Native(fun.fun));
     }
-    pub fn compile_module(&mut self, module: &Module) -> Result<(), ()> {
-        let heap_lock = self.heap.lock();
-
+    pub fn compile_module(&'s self, module: &Module) -> Result<(), ()> {
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
@@ -72,77 +77,62 @@ impl<'h> Runtime<'h> {
                         .map(|ty| ty.try_into().unwrap())
                         .unwrap_or(Type::Unit);
                     self.fun_sigs
+                        .borrow_mut()
                         .insert(fun.name.clone(), FunSig::new(vec![], params, returns));
                 }
             }
         }
 
-        let mut consts_to_patch = vec![];
+        let mut funs_to_patch = vec![];
 
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
-                    let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
+                    let typed_fun = infer_fun(fun, &self.fun_sigs.borrow()).unwrap();
                     let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
 
-                    let bytecode = heap_lock.alloc::<Bytecode>(compiled_fun.bytecode.len());
-                    for i in 0..compiled_fun.bytecode.len() {
-                        bytecode.set(i, compiled_fun.bytecode[i]);
-                    }
+                    let compiled_fun = self.compiled_funs.push_get(Box::new(compiled_fun));
 
-                    let consts = heap_lock.alloc::<Values>(compiled_fun.consts.len());
-                    for i in 0..compiled_fun.consts.len() {
-                        consts.set(i, compiled_fun.consts[i]);
-                    }
-
-                    let fun_object = heap_lock.alloc::<Values>(2);
-                    fun_object.set(0, Value::from_pointer(Pointer::ObjectBytecode(bytecode)));
-                    fun_object.set(1, Value::from_pointer(Pointer::ObjectValues(consts)));
-                    let rooted_fun_object = heap_lock.root(fun_object);
-
-                    consts_to_patch.push((consts, fun_ptrs));
-                    self.funs.insert(fun.name.clone(), Fun::Compiled(rooted_fun_object));
+                    funs_to_patch.push((compiled_fun, fun_ptrs));
+                    self.funs
+                        .borrow_mut()
+                        .insert(fun.name.clone(), Fun::Compiled(compiled_fun));
                 }
             }
         }
 
-        for (consts_to_patch, fun_ptrs) in consts_to_patch {
+        for (fun_to_patch, fun_ptrs) in funs_to_patch {
             for (target_fun_name, index) in fun_ptrs {
-                let fun = self.funs.get(&target_fun_name).unwrap();
-                match fun {
-                    Fun::Native(fun) => {
-                        let value = Value::from_pointer(Pointer::NativeFun(*fun));
-                        consts_to_patch.set(index as usize, value);
-                    }
-                    Fun::Compiled(fun) => {
-                        let fun_lock = fun.lock();
-                        let value = Value::from_pointer(Pointer::ObjectValues(fun_lock.get()));
-                        consts_to_patch.set(index as usize, value);
-                    }
+                let funs = self.funs.borrow();
+                let fun = funs.get(&target_fun_name).unwrap();
+                let value = match *fun {
+                    Fun::Native(fun) => StaticValue::NativeFun(fun),
+                    Fun::Compiled(fun) => StaticValue::CompiledFun(fun),
                 };
+                fun_to_patch.consts[index as usize].set(value);
             }
         }
 
         Ok(())
     }
-    pub fn execute_fun(&mut self, name: &str) -> Result<(), RuntimeError> {
-        let Fun::Compiled(fun) = self.funs.get(&Ident::new(name)).unwrap() else {
-            panic!()
+    pub fn execute_fun(&'s self, name: &str) -> Result<(), RuntimeError> {
+        let fun = {
+            let funs = self.funs.borrow();
+            funs.get(&Ident::new(name)).copied()
         };
 
-        let heap_lock = self.heap.lock();
+        let Fun::Compiled(fun) = fun.unwrap() else { panic!() };
 
-        let fun_object_lock = fun.lock();
+        let mutator = self.heap.mutator();
+        let value_stack = mutator.alloc_array(1024);
 
         let mut vm = VM {
-            call_stack: heap_lock.alloc(256),
-            value_stack: heap_lock.alloc(1024),
-            bytecode: fun_object_lock.get().get(0).as_pointer().as_object_bytecode(),
-            consts: fun_object_lock.get().get(1).as_pointer().as_object_values(),
-            heap: &heap_lock,
+            call_stack: Vec::with_capacity(256),
+            value_stack,
+            mutator: &mutator,
             ip: 0,
             value_stack_frame: 0,
-            call_stack_top: 0,
+            fun,
         };
 
         let mut cf = ControlFlow::Continue;

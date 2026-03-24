@@ -85,3 +85,5 @@
 // // optimisation to skip elements with no gc refs [DONE]
 // // drop for gc type
 // // trace for enums
+
+fn main() {}

@@ -1,9 +1,13 @@
-use opal::heap2::Heap;
+use opal::heap::Heap;
 
 fn main() {
-    let mut heap = Heap::init().expect("could not create heap");
+    let mut heap = Heap::new().expect("could not create heap");
 
-    let thing = heap.alloc_native(Custom(5));
+    let mutator = heap.mutator();
+
+    let _ = mutator.alloc_native(Custom(5));
+
+    drop(mutator);
 
     heap.collect_garbage();
 }

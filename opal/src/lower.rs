@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
 
 use crate::{
     ast::{ArithOp, BitwiseOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
@@ -9,16 +9,15 @@ use crate::{
         TypedAssignOp, TypedBlock, TypedElse, TypedExpr, TypedFun, TypedIf, TypedInfixOp, TypedPrefixOp, TypedStmt,
         TypedVar, VarId,
     },
-    value::Value,
+    value::StaticValue,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Label(u32);
 
-pub struct Lowerer {
+pub struct Lowerer<'s> {
     pub bytecode: BytecodeBuffer<Label>,
-    pub consts: Vec<Value<'static>>,
-    pub consts_index: HashMap<Value<'static>, Cst>,
+    pub consts: Vec<StaticValue<'s>>,
     pub next_label: u32,
     pub stack_top: u8,
     pub stack_frames: Vec<u8>,
@@ -34,16 +33,16 @@ pub struct LoopLabels {
 }
 
 #[derive(Debug)]
-pub struct CompiledFun {
-    pub consts: Vec<Value<'static>>,
-    pub bytecode: Vec<Instr>,
+pub struct CompiledFun<'s> {
+    pub consts: Box<[Cell<StaticValue<'s>>]>,
+    pub bytecode: Box<[Instr]>,
+    pub name: String,
 }
 
-pub fn lower_fun(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
+pub fn lower_fun<'s>(fun: &TypedFun) -> (CompiledFun<'s>, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),
-        consts_index: HashMap::new(),
         next_label: 0,
         stack_top: 0,
         stack_frames: Vec::new(),
@@ -57,27 +56,26 @@ pub fn lower_fun(fun: &TypedFun) -> (CompiledFun, Vec<(Ident, u8)>) {
     }
     lowerer.lower_block(&fun.block);
     if !fun.block.diverges {
-        let unit = lowerer.get_const(Value::from_unit(()));
+        let unit = lowerer.add_const(StaticValue::Unit);
         lowerer.bytecode.instr().ret(Val::Cst(unit));
     }
     let fun = CompiledFun {
-        consts: lowerer.consts,
+        consts: lowerer.consts.iter().map(|const_| Cell::new(*const_)).collect(),
         bytecode: lowerer.bytecode.finish(),
+        name: fun.name.0.to_string(),
     };
     (fun, lowerer.fun_ptrs)
 }
 
-impl Lowerer {
-    fn get_const(&mut self, value: Value<'static>) -> Cst {
-        *self.consts_index.entry(value).or_insert_with(|| {
-            let cst = Cst(self.consts.len() as u8);
-            self.consts.push(value);
-            cst
-        })
+impl<'s> Lowerer<'s> {
+    fn add_const(&mut self, value: StaticValue<'s>) -> Cst {
+        let cst = Cst(self.consts.len() as u8);
+        self.consts.push(value);
+        cst
     }
     fn fresh_const(&mut self) -> Cst {
         let cst = Cst(self.consts.len() as u8);
-        self.consts.push(Value::from_unit(()));
+        self.consts.push(StaticValue::Unit);
         cst
     }
     fn alloc_reg(&mut self) -> Reg {
@@ -98,10 +96,10 @@ impl Lowerer {
     }
     fn lower_expr_lit_val(&mut self, lit: &Lit) -> Val {
         let cst = match *lit {
-            Lit::Int(value) => self.get_const(Value::from_int(value)),
-            Lit::Float(value) => self.get_const(Value::from_float(value)),
-            Lit::Bool(value) => self.get_const(Value::from_bool(value)),
-            Lit::Unit => self.get_const(Value::from_unit(())),
+            Lit::Int(value) => self.add_const(StaticValue::Int(value)),
+            Lit::Float(value) => self.add_const(StaticValue::Float(value)),
+            Lit::Bool(value) => self.add_const(StaticValue::Bool(value)),
+            Lit::Unit => self.add_const(StaticValue::Unit),
         };
         Val::Cst(cst)
     }
@@ -210,7 +208,7 @@ impl Lowerer {
             }
             _ => {
                 let val = self.lower_expr_val(expr);
-                let cst = self.get_const(Value::from_bool(branch_if));
+                let cst = self.add_const(StaticValue::Bool(branch_if));
                 self.bytecode.instr().beq(val, Val::Cst(cst), label);
             }
         }
@@ -253,8 +251,8 @@ impl Lowerer {
         let if_true = self.new_label();
         let if_false = self.new_label();
 
-        let false_val = self.get_const(Value::from_bool(false));
-        let true_val = self.get_const(Value::from_bool(true));
+        let false_val = self.add_const(StaticValue::Bool(false));
+        let true_val = self.add_const(StaticValue::Bool(true));
 
         self.lower_expr_logical_branch(left, right, op, if_true, true);
         self.bytecode.instr().mov(dst, Val::Cst(false_val));
@@ -273,11 +271,11 @@ impl Lowerer {
         }
     }
     fn lower_expr_array_elements_dst(&mut self, elements: &[TypedExpr], dst: Reg) {
-        let length = self.get_const(Value::from_int(elements.len() as i64));
+        let length = self.add_const(StaticValue::Int(elements.len() as i64));
         self.bytecode.instr().array_new(dst, Val::Cst(length));
         for (index, element) in elements.iter().enumerate() {
             let val = self.lower_expr_val(element);
-            let index = self.get_const(Value::from_int(index as i64));
+            let index = self.add_const(StaticValue::Int(index as i64));
             self.bytecode.instr().array_set(dst, val, Val::Cst(index));
         }
     }
@@ -286,7 +284,9 @@ impl Lowerer {
         let default = self.lower_expr_val(default);
         self.bytecode.instr().array_new(dst, length);
         let index = self.alloc_reg();
-        let one = self.get_const(Value::from_int(1));
+        let zero = self.add_const(StaticValue::Int(0));
+        self.bytecode.instr().mov(index, Val::Cst(zero));
+        let one = self.add_const(StaticValue::Int(1));
 
         let cond = self.new_label();
         let exit = self.new_label();
@@ -332,23 +332,23 @@ impl Lowerer {
         match op {
             TypedPrefixOp::Negative(NumericType::Int) => {
                 let val = self.lower_expr_val(expr);
-                let zero = self.get_const(Value::from_int(0));
+                let zero = self.add_const(StaticValue::Int(0));
                 self.bytecode.instr().isub(dst, Val::Cst(zero), val);
             }
             TypedPrefixOp::Negative(NumericType::Float) => {
                 let val = self.lower_expr_val(expr);
-                let zero = self.get_const(Value::from_float(0.0));
+                let zero = self.add_const(StaticValue::Float(0.0));
                 self.bytecode.instr().fsub(dst, Val::Cst(zero), val);
             }
             TypedPrefixOp::Positive(_) => self.lower_expr_dst(expr, dst),
             TypedPrefixOp::BitwiseNot => {
                 let val = self.lower_expr_val(expr);
-                let all_ones = self.get_const(Value::from_int(!0));
+                let all_ones = self.add_const(StaticValue::Int(!0));
                 self.bytecode.instr().xor(dst, Val::Cst(all_ones), val);
             }
             TypedPrefixOp::LogicalNot => {
                 let val = self.lower_expr_val(expr);
-                let false_ = self.get_const(Value::from_bool(false));
+                let false_ = self.add_const(StaticValue::Bool(false));
                 self.bytecode.instr().seq(dst, val, Val::Cst(false_));
             }
         }

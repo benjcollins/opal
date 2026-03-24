@@ -132,36 +132,31 @@ fn inner(item: TokenStream2) -> TokenStream2 {
     quote! {
         #[allow(non_upper_case_globals)]
         const #fn_name: opal::runtime::TypedNativeFun = {
-            use opal::value::{Value, ValueConv, NativeFunResult};
-            use opal::runtime::TypedNativeFun;
-            use opal::heap::{Object, Values};
-            use opal::ty::BorrowedType;
-
             #(
-                struct #ty_param<'l>(pub Value<'l>);
+                struct #ty_param<'m, 's>(pub opal::value::Value<'m, 's>);
 
-                impl<'l> ValueConv<'l> for #ty_param<'l> {
-                    const TYPE: BorrowedType<'static> = BorrowedType::Generic(#ty_param_str);
-                    fn into_value(self) -> Value<'l> {
+                impl<'m, 's> opal::value::ValueConv<'m, 's> for #ty_param<'m, 's> {
+                    const TYPE: opal::ty::BorrowedType<'static> = opal::ty::BorrowedType::Generic(#ty_param_str);
+                    fn into_value(self) -> opal::value::Value<'m, 's> {
                         self.0
                     }
-                    fn from_value(value: Value<'l>) -> Self {
+                    fn from_value(value: opal::value::Value<'m, 's>) -> Self {
                         #ty_param(value)
                     }
                 }
             )*
 
-            fn inner<'l>(value_stack: Object<'l, Values>, value_stack_frame: usize) -> Result<Value<'l>, RuntimeError> {
+            fn inner<'m, 's>(value_stack: opal::heap::Object<'m, opal::heap::Array<'s>>, value_stack_frame: usize) -> Result<opal::value::Value<'m, 's>, RuntimeError> {
                 #(
-                    let #pat = <#ty as ValueConv<'l>>::from_value(value_stack.get(value_stack_frame + #index));
+                    let #pat = <#ty as opal::value::ValueConv<'m, 's>>::from_value(value_stack.get(value_stack_frame + #index));
                 )*
-                <#ret_ty as NativeFunResult<'l>>::map(#block)
+                <#ret_ty as opal::value::NativeFunResult<'m, 's>>::map(#block)
             }
-            TypedNativeFun {
+            opal::runtime::TypedNativeFun {
                 name: #fn_name_str,
                 generics: &[#(#ty_param_str),*],
-                params: &[#(<#ty as ValueConv>::TYPE),*],
-                returns: <<#ret_ty as NativeFunResult>::Output as ValueConv>::TYPE,
+                params: &[#(<#ty as opal::value::ValueConv>::TYPE),*],
+                returns: <<#ret_ty as opal::value::NativeFunResult>::Output as opal::value::ValueConv>::TYPE,
                 fun: inner,
             }
         };
