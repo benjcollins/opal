@@ -1,94 +1,125 @@
-use std::{
-    alloc::{Layout, alloc, dealloc},
-    cell::Cell,
-    marker::PhantomData,
-    mem,
-    ops::Deref,
-    ptr::{self, replace},
-    slice,
-};
+use std::alloc::{Layout, alloc, dealloc};
+use std::iter::repeat_n;
+use std::marker::PhantomData;
+use std::ptr::null_mut;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
+use std::{ptr, slice};
 
-use crate::{
-    handle::{Handle, HandleInner},
-    instr::Val,
-    value::Value,
-};
+use crate::value::{Value, ValueTag};
 
-pub struct Heap {
-    objects: Cell<*mut ObjectHeader>,
-    handles: Cell<*mut HandleInner>,
-    mutators: Cell<u32>,
-}
+const HEAP_ALIGN: usize = size_of::<*mut ()>();
+static HEAP_EXISTS: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Copy)]
-pub struct ObjectHeader {
+struct ObjectHeader {
     next: *mut ObjectHeader,
-    metadata: Metadata,
-    marked: bool,
     tag: Tag,
+    marked: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tag {
     Array,
-    Bytes,
-    Native,
 }
 
-#[derive(Clone, Copy)]
-union Metadata {
-    array: usize,
-    bytes: usize,
-    native: (usize, fn(*mut ())),
+pub struct Heap {
+    objects_head: AtomicPtr<ObjectHeader>,
+    stacks_head: Mutex<*mut StackInner>,
+    mutators: AtomicUsize,
 }
 
-#[derive(Debug)]
-pub struct Object<'m, T> {
-    ptr: *mut ObjectHeader,
-    _phantom: PhantomData<&'m T>,
-}
-
-impl<'h, T> Clone for Object<'h, T> {
-    fn clone(&self) -> Self {
-        *self
+impl Heap {
+    pub fn new() -> Option<Heap> {
+        HEAP_EXISTS
+            .compare_exchange(false, true, Ordering::Release, Ordering::Relaxed)
+            .ok()
+            .map(|_| Heap {
+                objects_head: AtomicPtr::new(ptr::null_mut()),
+                stacks_head: Mutex::new(null_mut()),
+                mutators: AtomicUsize::new(0),
+            })
     }
-}
-
-impl<'m, T> Copy for Object<'m, T> {}
-
-const HEAP_ALIGN: usize = align_of::<*mut ()>();
-
-#[derive(Debug)]
-pub struct Array<'s>(PhantomData<&'s ()>);
-
-#[derive(Debug)]
-pub struct Bytes;
-
-#[derive(Debug)]
-pub struct Native<T>(PhantomData<T>);
-
-fn size(tag: Tag, metadata: Metadata) -> usize {
-    unsafe {
-        match tag {
-            Tag::Array => metadata.array * size_of::<Value>(),
-            Tag::Bytes => metadata.bytes,
-            Tag::Native => {
-                let (size, _) = metadata.native;
-                size
+    pub fn mutator(&self) -> Mutator<'_> {
+        self.mutators.fetch_add(1, Ordering::Acquire);
+        Mutator { heap: self }
+    }
+    unsafe fn alloc_raw(&self, size: usize, tag: Tag) -> *mut ObjectHeader {
+        unsafe {
+            let size = size_of::<ObjectHeader>() + size;
+            let layout = Layout::from_size_align_unchecked(size, HEAP_ALIGN);
+            let ptr = alloc(layout).cast::<ObjectHeader>();
+            (*ptr).tag = tag;
+            (*ptr).next = self.objects_head.swap(ptr, Ordering::Relaxed);
+            (*ptr).marked = false;
+            ptr
+        }
+    }
+    pub fn create_stack<'s>(&self) -> Stack<'_, 's> {
+        unsafe {
+            let mut stacks_head = self.stacks_head.lock().unwrap();
+            let inner = alloc(Layout::new::<StackInner>()).cast::<StackInner>();
+            (*inner).next = *stacks_head;
+            (*inner).prev = null_mut();
+            (*inner).heap = ptr::from_ref(self);
+            (*inner).value_data = Vec::new();
+            (*inner).value_tag = Vec::new();
+            *stacks_head = inner;
+            Stack {
+                inner,
+                _phantom: PhantomData,
             }
         }
     }
 }
 
-thread_local! {
-    static HEAP_EXISTS: Cell<bool> = Cell::new(false);
+impl<'h> Mutator<'h> {
+    pub fn alloc_array<'s>(&self, elements: &[Value<'_, 's>]) -> Object<'_, Array<'s>> {
+        unsafe {
+            let ptr = self.heap.alloc_raw(
+                size_of::<ArrayHeader>() + size_of::<*mut ()>() * elements.len(),
+                Tag::Array,
+            );
+            let header = ptr.add(1).cast::<ArrayHeader>();
+            (*header).len = elements.len();
+            let array = header.add(1).cast::<*mut ()>();
+            let mut tag = ValueTag::Undefined;
+            for (index, value) in elements.iter().enumerate() {
+                if tag != value.tag() && tag != ValueTag::Undefined {
+                    panic!("array types do not match!")
+                }
+                tag = value.tag();
+                *array.add(index) = value.data();
+            }
+            (*header).tag.store(tag as u8, Ordering::Relaxed);
+            Object::from_ptr(ptr.cast())
+        }
+    }
 }
 
 impl Drop for Heap {
     fn drop(&mut self) {
-        // self.collect_garbage();
-        // assert heap is empty!
-        HEAP_EXISTS.set(false);
+        unsafe {
+            let mut cur = *self.objects_head.get_mut();
+            while !cur.is_null() {
+                let next = (*cur).next;
+                dealloc_object(cur);
+                cur = next;
+            }
+        }
+    }
+}
+
+fn dealloc_object(ptr: *mut ObjectHeader) {
+    unsafe {
+        let size = match (*ptr).tag {
+            Tag::Array => {
+                let header = ptr.add(1).cast::<ArrayHeader>();
+                size_of::<ArrayHeader>() + size_of::<*mut ()>() * (*header).len
+            }
+        };
+        dealloc(
+            ptr.cast(),
+            Layout::from_size_align_unchecked(size_of::<ObjectHeader>() + size, HEAP_ALIGN),
+        );
     }
 }
 
@@ -96,201 +127,143 @@ pub struct Mutator<'h> {
     heap: &'h Heap,
 }
 
-impl<'h> Mutator<'h> {
-    pub fn alloc_bytes(&self, bytes: &[u8]) -> Object<'_, Bytes> {
-        unsafe {
-            let object_ptr = self.heap.alloc_raw(Tag::Bytes, Metadata { bytes: bytes.len() });
-            let bytes_ptr = object_ptr.add(1).cast::<u8>();
-            ptr::copy(bytes.as_ptr(), bytes_ptr, bytes.len());
-            Object::from_ptr(object_ptr)
-        }
-    }
-    pub fn alloc_array<'s>(&self, len: usize) -> Object<'_, Array<'s>> {
-        unsafe {
-            let object_ptr = self.heap.alloc_raw(Tag::Array, Metadata { array: len });
-            let data_ptr = object_ptr.add(1).cast::<Value>();
-            for i in 0..len {
-                *data_ptr.add(i) = Value::Unit;
-            }
-            Object::from_ptr(object_ptr)
-        }
-    }
-    pub fn alloc_native<T>(&self, value: T) -> Object<'_, Native<T>> {
-        unsafe {
-            let object_ptr = self.heap.alloc_raw(
-                Tag::Native,
-                Metadata {
-                    native: (size_of::<T>(), |value_ptr| ptr::drop_in_place(value_ptr.cast::<T>())),
-                },
-            );
-            let value_ptr = object_ptr.add(1).cast::<T>();
-            mem::forget(replace(value_ptr, value));
-            Object::from_ptr(object_ptr)
-        }
-    }
-    pub fn object_from_handle<T>(&self, handle: &Handle<'h, T>) -> Object<'_, T> {
-        unsafe { Object::from_ptr(handle.object_ptr()) }
-    }
-}
+impl<'h> Mutator<'h> {}
 
 impl<'h> Drop for Mutator<'h> {
     fn drop(&mut self) {
-        self.heap.mutators.set(self.heap.mutators.get() - 1);
+        self.heap.mutators.fetch_sub(1, Ordering::Release);
     }
 }
 
-impl Heap {
-    pub fn new() -> Option<Heap> {
-        if !HEAP_EXISTS.get() {
-            HEAP_EXISTS.set(false);
-            Some(Heap {
-                objects: Cell::new(ptr::null_mut()),
-                handles: Cell::new(ptr::null_mut()),
-                mutators: Cell::new(0),
-            })
-        } else {
-            None
-        }
-    }
-    pub fn mutator(&self) -> Mutator<'_> {
-        self.mutators.set(self.mutators.get() + 1);
-        Mutator { heap: self }
-    }
-    unsafe fn alloc_raw(&self, tag: Tag, metadata: Metadata) -> *mut ObjectHeader {
-        unsafe {
-            let size = size_of::<ObjectHeader>() + size(tag, metadata);
-            let layout = Layout::from_size_align_unchecked(size, HEAP_ALIGN);
-            let ptr = alloc(layout).cast::<ObjectHeader>();
-            (*ptr).metadata = metadata;
-            (*ptr).next = self.objects.get();
-            self.objects.set(ptr);
-            ptr
-        }
-    }
-    pub fn create_handle<T>(&self, object: Object<'_, T>) -> Handle<'_, T> {
-        unsafe {
-            let handle = alloc(Layout::new::<HandleInner>()).cast::<HandleInner>();
-            (*handle).object = object.as_ptr();
-            (*handle).next = self.handles.get();
-            (*handle).prev = ptr::null_mut();
-            if !self.handles.get().is_null() {
-                (*self.handles.get()).prev = handle;
-            }
-            self.handles.set(handle);
+pub struct Array<'s>(PhantomData<&'s ()>);
 
-            Handle {
-                inner: handle,
-                _phantom: PhantomData,
-            }
-        }
-    }
-    fn mark_roots(&mut self) {
+pub struct Stack<'h, 's> {
+    inner: *mut StackInner,
+    _phantom: PhantomData<(&'h (), &'s ())>,
+}
+
+struct StackInner {
+    heap: *const Heap,
+    next: *mut StackInner,
+    prev: *mut StackInner,
+    value_data: Vec<*mut ()>,
+    value_tag: Vec<ValueTag>,
+}
+
+impl<'h, 's> Drop for Stack<'h, 's> {
+    fn drop(&mut self) {
         unsafe {
-            let mut current = self.handles.get();
-            while !current.is_null() {
-                (*(*current).object).marked = true;
-                current = (*current).next;
+            let heap = (*self.inner).heap.as_ref_unchecked();
+            let mut stacks_head = heap.stacks_head.lock().unwrap();
+            let prev = (*self.inner).prev;
+            let next = (*self.inner).next;
+            if prev.is_null() {
+                *stacks_head = next;
+            } else {
+                (*prev).next = next;
             }
-        }
-    }
-    fn sweep_unmarked(&mut self) {
-        unsafe {
-            let mut previous: *mut ObjectHeader = ptr::null_mut();
-            let mut current = self.objects.get();
-            while !current.is_null() {
-                if (*current).marked {
-                    previous = current;
-                } else {
-                    println!("freeing!");
-                    if !previous.is_null() {
-                        (*previous).next = (*current).next;
-                    }
-                    if (*current).tag == Tag::Native {
-                        let (_, drop) = (*current).metadata.native;
-                        (drop)(current.add(1).cast())
-                    }
-                    let size = size_of::<ObjectHeader>() + size((*current).tag, (*current).metadata);
-                    dealloc(current.cast(), Layout::from_size_align_unchecked(size, HEAP_ALIGN));
-                }
-                current = (*current).next;
+            if !next.is_null() {
+                (*next).prev = prev;
             }
+            dealloc(self.inner.cast(), Layout::new::<StackInner>());
         }
     }
-    pub fn collect_garbage(&mut self) {
-        if self.mutators.get() > 0 {
-            panic!()
-        }
-        self.mark_roots();
-        // TODO: tracing
-        self.sweep_unmarked();
+}
+
+impl<'h, 's> Stack<'h, 's> {
+    fn inner_mut<'m>(&mut self, _mutator: &'m Mutator<'h>) -> &mut StackInner {
+        unsafe { self.inner.as_mut_unchecked() }
     }
+    fn inner<'m>(&self, _mutator: &'m Mutator<'h>) -> &StackInner {
+        unsafe { self.inner.as_ref_unchecked() }
+    }
+    pub fn grow<'m>(&mut self, size: usize, mutator: &'m Mutator<'h>) {
+        let inner = self.inner_mut(mutator);
+        inner.value_data.extend(repeat_n(null_mut(), size));
+        inner.value_tag.extend(repeat_n(ValueTag::Undefined, size));
+    }
+    pub fn shrink<'m>(&mut self, size: usize, mutator: &'m Mutator<'h>) {
+        let inner = self.inner_mut(mutator);
+        let len = inner.value_data.len();
+        inner.value_data.truncate(len - size);
+        inner.value_tag.truncate(len - size);
+    }
+    pub fn get<'m>(&self, index: usize, mutator: &'m Mutator<'h>) -> Value<'m, 's> {
+        let inner = self.inner(mutator);
+        let data = inner.value_data[index];
+        let tag = inner.value_tag[index];
+        unsafe { Value::new(tag, data) }
+    }
+    pub fn set<'m>(&mut self, index: usize, value: Value, mutator: &'m Mutator<'h>) {
+        let inner = self.inner_mut(mutator);
+        inner.value_data[index] = value.data();
+        inner.value_tag[index] = value.tag();
+    }
+}
+
+struct ArrayHeader {
+    len: usize,
+    tag: AtomicU8,
+}
+
+pub struct Object<'m, T> {
+    ptr: *mut ObjectHeader,
+    _phantom: PhantomData<&'m T>,
 }
 
 impl<'m, T> Object<'m, T> {
-    unsafe fn from_ptr(ptr: *mut ObjectHeader) -> Object<'m, T> {
+    pub unsafe fn from_ptr(ptr: *mut ()) -> Object<'m, T> {
         Object {
-            ptr,
+            ptr: ptr.cast(),
             _phantom: PhantomData,
         }
     }
-    pub fn as_ptr(self) -> *mut ObjectHeader {
-        self.ptr
-    }
-}
-
-impl<'m> Deref for Object<'m, Bytes> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            let data_ptr = self.ptr.add(1).cast::<u8>();
-            slice::from_raw_parts(data_ptr, (*self.ptr).metadata.bytes)
-        }
-    }
-}
-
-impl<'m, T> Deref for Object<'m, Native<T>> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            let value_ptr = self.ptr.add(1).cast::<T>();
-            value_ptr.as_ref().unwrap()
-        }
+    pub fn as_ptr(&self) -> *mut () {
+        self.ptr.cast()
     }
 }
 
 impl<'m, 's> Object<'m, Array<'s>> {
-    pub fn len(&self) -> usize {
-        unsafe { (*self.ptr).metadata.array }
+    unsafe fn header(&self) -> *mut ArrayHeader {
+        unsafe { self.ptr.add(1).cast() }
     }
-    pub fn set(&self, index: usize, value: Value<'m, 's>) {
+    fn slice(&self) -> &[AtomicPtr<()>] {
         unsafe {
-            if index >= self.len() {
-                panic!()
-            }
-            let data_ptr = self.ptr.add(1).cast::<Value>();
-            *data_ptr.add(index) = value;
+            let header = self.header();
+            let ptr = header.add(1).cast::<AtomicPtr<()>>();
+            slice::from_raw_parts(ptr, (*header).len)
         }
+    }
+    pub fn len(&self) -> usize {
+        unsafe { (*self.header()).len }
     }
     pub fn get(&self, index: usize) -> Value<'m, 's> {
         unsafe {
-            if index >= self.len() {
-                panic!()
+            let tag = (*self.header()).tag.load(Ordering::Relaxed);
+            let tag = ValueTag::from_repr(tag).expect("invalid tag");
+            let data = self.slice()[index].load(Ordering::Relaxed);
+            Value::new(tag, data)
+        }
+    }
+    pub fn set(&self, index: usize, value: Value<'m, 's>) {
+        unsafe {
+            let tag = (*self.header()).tag.load(Ordering::Relaxed);
+            let tag = ValueTag::from_repr(tag).expect("invalid tag");
+            if tag != value.tag() {
+                panic!("array tag and value tag do not match")
             }
-            let data_ptr = self.ptr.add(1).cast::<Value>();
-            *data_ptr.add(index)
+            self.slice()[index].store(value.data(), Ordering::Relaxed);
         }
     }
 }
 
-// heap object types
-// function: instrs, values
-// call stack
-// value stack
-// record
-// array
+impl<'m, T> Clone for Object<'m, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
-// what do heap objects need to be able to do
-// determine the size of the object so that it can be deallocated
-// trace pointers through the object
+impl<'m, T> Copy for Object<'m, T> {}
+
+unsafe impl<'m, T> Send for Object<'m, T> {}
+unsafe impl<'m, T> Sync for Object<'m, T> {}

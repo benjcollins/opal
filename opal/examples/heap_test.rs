@@ -1,21 +1,13 @@
-use opal::heap::Heap;
+use opal::{heap::Heap, value::Value};
 
 fn main() {
-    let mut heap = Heap::new().expect("could not create heap");
+    let heap = Heap::new().expect("could not create heap!");
 
     let mutator = heap.mutator();
+    let array = mutator.alloc_array(&[Value::int(2), Value::int(5)]);
 
-    let _ = mutator.alloc_native(Custom(5));
+    let mut stack = heap.create_stack();
 
-    drop(mutator);
-
-    heap.collect_garbage();
-}
-
-struct Custom(u32);
-
-impl Drop for Custom {
-    fn drop(&mut self) {
-        println!("{}", self.0)
-    }
+    stack.grow(10, &mutator);
+    stack.set(0, Value::array(array), &mutator);
 }

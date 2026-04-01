@@ -3,15 +3,15 @@ use std::ops::Neg;
 use strum::EnumIs;
 
 use crate::{
-    heap::{Array, Mutator, Object},
+    heap::{Mutator, Stack},
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
-    value::{Value, value_equal},
+    value::{Value, ValueTag},
 };
 
 pub struct VM<'m, 's, 'h> {
     pub call_stack: Vec<(usize, &'s CompiledFun<'s>)>,
-    pub value_stack: Object<'m, Array<'s>>,
+    pub value_stack: Stack<'h, 's>,
 
     pub fun: &'s CompiledFun<'s>,
 
@@ -38,10 +38,12 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
         }
     }
     fn read_reg(&self, reg: Reg) -> Value<'m, 's> {
-        self.value_stack.get(self.value_stack_frame + reg.0 as usize)
+        self.value_stack
+            .get(self.value_stack_frame + reg.0 as usize, self.mutator)
     }
     fn write_reg(&mut self, reg: Reg, val: Value<'m, 's>) {
-        self.value_stack.set(self.value_stack_frame + reg.0 as usize, val);
+        self.value_stack
+            .set(self.value_stack_frame + reg.0 as usize, val, self.mutator);
     }
 
     fn execute_arith_instr(
@@ -82,7 +84,7 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
-        self.write_reg(instr.dst(), Value::Bool(cmp(src1, src2)));
+        self.write_reg(instr.dst(), Value::bool(cmp(src1, src2)));
         self.ip += 1;
         Ok(ControlFlow::Continue)
     }
@@ -91,11 +93,11 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
         let instr = self.fun.bytecode[self.ip];
 
         fn int_op<'m, 's>(op: impl Fn(i64, i64) -> i64) -> impl Fn(Value, Value) -> Value<'m, 's> {
-            move |a, b| Value::Int(op(a.as_int(), b.as_int()))
+            move |a, b| Value::int(op(a.as_int(), b.as_int()))
         }
 
         fn float_op<'m, 's>(op: impl Fn(f64, f64) -> f64) -> impl Fn(Value, Value) -> Value<'m, 's> {
-            move |a, b| Value::Float(op(a.as_float(), b.as_float()))
+            move |a, b| Value::float(op(a.as_float(), b.as_float()))
         }
 
         fn int_cmp<'v>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value, Value) -> bool {
@@ -162,14 +164,18 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
             }
             Op::Call => {
                 let value = self.read_value(instr.src1());
-                match value {
-                    Value::NativeFun(fun) => {
+                match value.tag() {
+                    ValueTag::HostFun => {
+                        let fun = value.as_host_fun();
                         let args_start = instr.args_start() as usize;
-                        self.write_reg(instr.dst(), fun(self.value_stack, self.value_stack_frame + args_start)?);
+                        self.write_reg(
+                            instr.dst(),
+                            fun(self.value_stack, self.mutator, self.value_stack_frame + args_start)?,
+                        );
                         self.ip += 1;
                     }
-                    Value::CompiledFun(fun) => {
-                        // println!("{}", fun.name);
+                    ValueTag::Fun => {
+                        let fun = value.as_fun();
                         self.call_stack.push((self.ip, self.fun));
                         self.value_stack_frame += instr.args_start() as usize;
                         self.fun = fun;
@@ -194,7 +200,7 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
             Op::ArrayInit => {
                 let length = self.read_value(instr.src1()).as_int();
                 let array = self.mutator.alloc_array(length as usize);
-                self.write_reg(instr.dst(), Value::Array(array));
+                self.write_reg(instr.dst(), Value::array(array));
                 self.ip += 1;
                 Ok(ControlFlow::Continue)
             }

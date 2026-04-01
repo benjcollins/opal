@@ -4,16 +4,19 @@ use elsa::FrozenVec;
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::{Array, Heap, Object},
+    heap::{Heap, Mutator, Stack},
     infer::infer_fun,
     lower::{CompiledFun, lower_fun},
     ty::{BorrowedType, FunSig, Type},
-    value::{StaticValue, Value},
+    value::Value,
     vm::{ControlFlow, RuntimeError, VM},
 };
 
-pub type NativeFun =
-    for<'m, 's> fn(value_stack: Object<'m, Array<'s>>, value_stack_base: usize) -> Result<Value<'m, 's>, RuntimeError>;
+pub type NativeFun = for<'m, 's, 'h> fn(
+    value_stack: Stack<'h, 's>,
+    mutator: &'m Mutator<'h>,
+    value_stack_base: usize,
+) -> Result<Value<'m, 's>, RuntimeError>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TypedNativeFun {
@@ -106,10 +109,10 @@ impl<'s> Runtime<'s> {
                 let funs = self.funs.borrow();
                 let fun = funs.get(&target_fun_name).unwrap();
                 let value = match *fun {
-                    Fun::Native(fun) => StaticValue::NativeFun(fun),
-                    Fun::Compiled(fun) => StaticValue::CompiledFun(fun),
+                    Fun::Native(fun) => Value::host_fun(fun),
+                    Fun::Compiled(fun) => Value::fun(fun),
                 };
-                fun_to_patch.consts[index as usize].set(value);
+                fun_to_patch.consts[index as usize].set(value.try_into().unwrap());
             }
         }
 
@@ -124,11 +127,10 @@ impl<'s> Runtime<'s> {
         let Fun::Compiled(fun) = fun.unwrap() else { panic!() };
 
         let mutator = self.heap.mutator();
-        let value_stack = mutator.alloc_array(1024);
 
         let mut vm = VM {
-            call_stack: Vec::with_capacity(256),
-            value_stack,
+            call_stack: vec![],
+            value_stack: self.heap.create_stack(),
             mutator: &mutator,
             ip: 0,
             value_stack_frame: 0,
