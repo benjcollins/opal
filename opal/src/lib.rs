@@ -1,6 +1,5 @@
 pub mod ast;
 pub mod bytecode;
-pub mod handle;
 pub mod heap;
 pub mod infer;
 pub mod instr;

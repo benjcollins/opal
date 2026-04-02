@@ -3,7 +3,7 @@ use std::{convert::Infallible, fmt, marker::PhantomData, mem, ptr};
 use strum::{EnumIs, FromRepr};
 
 use crate::{
-    heap::{self, Object},
+    heap::object::{self, Object},
     lower::CompiledFun,
     runtime::NativeFun,
     ty::{BorrowedType, NumericType},
@@ -13,7 +13,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIs, FromRepr)]
 #[repr(u8)]
 pub enum ValueTag {
-    Undefined,
     Int,
     Float,
     Bool,
@@ -23,22 +22,22 @@ pub enum ValueTag {
     Fun,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Value<'s, 'm> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Value<'m, 's> {
     tag: ValueTag,
     data: *mut (),
-    _phantom: PhantomData<(&'s (), &'m ())>,
+    _phantom: PhantomData<(&'m Object<'m, object::Array<'s>>, &'s CompiledFun<'s>)>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaticValue<'s> {
     tag: ValueTag,
     data: *mut (),
-    _phantom: PhantomData<&'s ()>,
+    _phantom: PhantomData<&'s CompiledFun<'s>>,
 }
 
 pub struct Array<'m, 's, T> {
-    object: Object<'m, heap::Array<'s>>,
+    object: Object<'m, object::Array<'s>>,
     phantom: PhantomData<T>,
 }
 
@@ -59,6 +58,12 @@ type Int = i64;
 
 #[cfg(target_pointer_width = "32")]
 type Int = i32;
+
+#[cfg(target_pointer_width = "64")]
+type UInt = u64;
+
+#[cfg(target_pointer_width = "32")]
+type UInt = u32;
 
 #[cfg(target_pointer_width = "64")]
 type Float = f64;
@@ -93,7 +98,6 @@ impl<'m, 's> From<StaticValue<'s>> for Value<'m, 's> {
 
 impl<'m, 's> Value<'m, 's> {
     pub unsafe fn new(tag: ValueTag, data: *mut ()) -> Value<'m, 's> {
-        assert!(tag != ValueTag::Undefined);
         Value {
             tag,
             data,
@@ -110,7 +114,7 @@ impl<'m, 's> Value<'m, 's> {
         unsafe { Value::new(ValueTag::Int, ptr::without_provenance_mut(value as usize)) }
     }
     pub fn float(value: Float) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Float, ptr::without_provenance_mut(value as usize)) }
+        unsafe { Value::new(ValueTag::Float, ptr::without_provenance_mut(value.to_bits() as usize)) }
     }
     pub fn bool(value: bool) -> Value<'m, 's> {
         unsafe { Value::new(ValueTag::Bool, ptr::without_provenance_mut(if value { 1 } else { 0 })) }
@@ -118,7 +122,7 @@ impl<'m, 's> Value<'m, 's> {
     pub fn unit() -> Value<'m, 's> {
         unsafe { Value::new(ValueTag::Unit, ptr::without_provenance_mut(0)) }
     }
-    pub fn array(array: Object<'m, heap::Array<'m>>) -> Value<'m, 's> {
+    pub fn array(array: Object<'m, object::Array<'s>>) -> Value<'m, 's> {
         unsafe { Value::new(ValueTag::Array, array.as_ptr()) }
     }
     pub fn fun(fun: &CompiledFun) -> Value<'m, 's> {
@@ -133,23 +137,24 @@ impl<'m, 's> Value<'m, 's> {
     }
     pub fn as_float(self) -> Float {
         assert!(self.tag.is_float());
-        self.data.addr() as Float
+        Float::from_bits(self.data.addr() as UInt)
     }
     pub fn as_bool(self) -> bool {
         assert!(self.tag.is_bool());
         self.data.addr() == 1
     }
-    pub fn as_array(self) -> Object<'m, heap::Array<'s>> {
+    pub fn as_array(self) -> Object<'m, object::Array<'s>> {
         assert!(self.tag.is_array());
         unsafe { Object::from_ptr(self.data.cast()) }
     }
     pub fn as_host_fun(&self) -> NativeFun {
         assert!(self.tag.is_host_fun());
+        assert!(!self.data.is_null());
         unsafe { mem::transmute::<*mut (), NativeFun>(self.data) }
     }
-    pub fn as_fun(&self) -> &'s CompiledFun {
-        assert!(self.tag.is_host_fun());
-        unsafe { self.data.cast::<CompiledFun<'s>>().as_ref_unchecked() }
+    pub fn as_fun(&self) -> &'s CompiledFun<'s> {
+        assert!(self.tag.is_fun());
+        unsafe { self.data.cast::<CompiledFun<'s>>().as_ref().unwrap() }
     }
 }
 
@@ -241,7 +246,7 @@ impl<'m, 's> fmt::Display for Value<'m, 's> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tag {
             ValueTag::Int => write!(f, "{}", self.data.addr() as Int),
-            ValueTag::Float => write!(f, "{}", self.data.addr() as Float),
+            ValueTag::Float => write!(f, "{:.1}", self.data.addr() as Float),
             ValueTag::Bool => write!(f, "{}", self.data.addr() == 1),
             ValueTag::Unit => write!(f, "()"),
             ValueTag::HostFun => write!(f, "host_fun"),
@@ -257,7 +262,6 @@ impl<'m, 's> fmt::Display for Value<'m, 's> {
                 }
                 write!(f, "]")
             }
-            ValueTag::Undefined => panic!("something has gone wrong"),
         }
     }
 }

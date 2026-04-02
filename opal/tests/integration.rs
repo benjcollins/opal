@@ -22,14 +22,8 @@ fn assert(value: bool) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn print_int(value: i64) -> Result<(), RuntimeError> {
-    println!("{}", value);
-    Ok(())
-}
-
-#[opal_proc::fun]
-fn print_float(value: f64) -> Result<(), RuntimeError> {
-    println!("{}", value);
+fn print<T>(value: T) -> Result<(), RuntimeError> {
+    println!("{}", value.0);
     Ok(())
 }
 
@@ -48,12 +42,10 @@ fn run_test(name: &str, source: &str, path: &Path) -> Result<(), Failed> {
     assert!(errors.is_empty());
     let module = module.unwrap();
 
-    let heap = Heap::new().unwrap();
-    let mut runtime = Runtime::new(heap);
+    let runtime = Runtime::new(Heap::new().expect("heap already exists"));
 
     runtime.register_native_fun(assert);
-    runtime.register_native_fun(print_float);
-    runtime.register_native_fun(print_int);
+    runtime.register_native_fun(print);
     runtime.register_native_fun(fail);
     runtime.register_native_fun(len);
 

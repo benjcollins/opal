@@ -2,22 +2,19 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use opal::ast::Ident;
 use opal::heap::Heap;
 use opal::parser::parse_module;
-use opal::runtime::Runtime;
+use opal::runtime::{Fun, Runtime};
 use opal::value::Array;
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
     let heap = Heap::new().unwrap();
-    let mut runtime = Runtime::new(heap);
+    let runtime = Runtime::new(heap);
 
     runtime.register_native_fun(len);
-    runtime.register_native_fun(print_array);
-    runtime.register_native_fun(print_int);
-    runtime.register_native_fun(print_float);
-    runtime.register_native_fun(print_bool);
-    runtime.register_native_fun(reverse);
+    runtime.register_native_fun(assert);
     runtime.register_native_fun(print);
 
     let path = Path::new("../examples/example.opal");
@@ -33,6 +30,21 @@ fn main() -> ExitCode {
         }
     };
     runtime.compile_module(&module).unwrap();
+
+    if false {
+        let funs = runtime.funs.borrow();
+        let fun = funs.get(&Ident::new("main")).unwrap();
+        match fun {
+            Fun::Native(_) => todo!(),
+            Fun::Compiled(fun) => {
+                println!("main:");
+                for i in 0..fun.bytecode.len() {
+                    println!("  {}", fun.bytecode[i]);
+                }
+                println!();
+            }
+        }
+    }
 
     runtime.execute_fun("main").unwrap();
 
@@ -51,39 +63,6 @@ fn len<T>(array: Array<T>) -> Result<i64, RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn reverse<T>(array: Array<T>) -> Result<(), RuntimeError> {
-    for i in 0..array.len() / 2 {
-        let temp = array.get(i);
-        array.set(i, array.get(array.len() - 1 - i));
-        array.set(array.len() - 1 - i, temp);
-    }
-    Ok(())
-}
-
-#[opal_proc::fun]
-fn print_array(array: Array<i64>) -> Result<(), RuntimeError> {
-    let mut elements = vec![];
-    for index in 0..array.len() {
-        elements.push(array.get(index));
-    }
-    println!("{:?}", elements);
-    Ok(())
-}
-
-#[opal_proc::fun]
-fn print_int(a: i64) -> Result<(), RuntimeError> {
-    println!("{}", a);
-    Ok(())
-}
-
-#[opal_proc::fun]
-fn print_float(value: f64) -> Result<(), RuntimeError> {
-    println!("{}", value);
-    Ok(())
-}
-
-#[opal_proc::fun]
-fn print_bool(value: bool) -> Result<(), RuntimeError> {
-    println!("{}", value);
-    Ok(())
+fn assert(value: bool) -> Result<(), RuntimeError> {
+    if value { Ok(()) } else { Err(RuntimeError) }
 }

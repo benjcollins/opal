@@ -3,7 +3,11 @@ use std::ops::Neg;
 use strum::EnumIs;
 
 use crate::{
-    heap::{Mutator, Stack},
+    heap::{
+        mutator::Mutator,
+        object::{Array, Object},
+        stack::Stack,
+    },
     instr::{Instr, Op, Reg, Val},
     lower::CompiledFun,
     value::{Value, ValueTag},
@@ -30,7 +34,7 @@ pub enum ControlFlow {
     Continue,
 }
 
-impl<'m, 's, 'h> VM<'m, 's, 'h> {
+impl<'m, 's: 'm, 'h> VM<'m, 's, 'h> {
     fn read_value(&self, val: Val) -> Value<'m, 's> {
         match val {
             Val::Reg(reg) => self.read_reg(reg),
@@ -61,7 +65,7 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
     fn execute_branch_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value, Value) -> bool,
+        cmp: impl Fn(Value<'m, 's>, Value<'m, 's>) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -80,7 +84,7 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
     fn execute_set_instr(
         &mut self,
         instr: Instr,
-        cmp: impl Fn(Value, Value) -> bool,
+        cmp: impl Fn(Value<'m, 's>, Value<'m, 's>) -> bool,
     ) -> Result<ControlFlow, RuntimeError> {
         let src1 = self.read_value(instr.src1());
         let src2 = self.read_value(instr.src2());
@@ -100,11 +104,11 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
             move |a, b| Value::float(op(a.as_float(), b.as_float()))
         }
 
-        fn int_cmp<'v>(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value, Value) -> bool {
+        fn int_cmp(cmp: impl Fn(i64, i64) -> bool) -> impl Fn(Value, Value) -> bool {
             move |a, b| cmp(a.as_int(), b.as_int())
         }
 
-        fn float_cmp<'v>(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value, Value) -> bool {
+        fn float_cmp(cmp: impl Fn(f64, f64) -> bool) -> impl Fn(Value, Value) -> bool {
             move |a, b| cmp(a.as_float(), b.as_float())
         }
 
@@ -140,15 +144,15 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
             Op::FDiv => self.execute_arith_instr(instr, float_op(|a, b| a / b)),
             Op::FMod => self.execute_arith_instr(instr, float_op(|a, b| a % b)),
 
-            Op::BEq => self.execute_branch_instr(instr, |a, b| value_equal(a, b)),
-            Op::BNEq => self.execute_branch_instr(instr, |a, b| !value_equal(a, b)),
+            Op::BEq => self.execute_branch_instr(instr, |a, b| a == b),
+            Op::BNEq => self.execute_branch_instr(instr, |a, b| a != b),
             Op::IBLt => self.execute_branch_instr(instr, int_cmp(|a, b| a < b)),
             Op::IBLte => self.execute_branch_instr(instr, int_cmp(|a, b| a <= b)),
             Op::FBLt => self.execute_branch_instr(instr, float_cmp(|a, b| a < b)),
             Op::FBLte => self.execute_branch_instr(instr, float_cmp(|a, b| a <= b)),
 
-            Op::SEq => self.execute_set_instr(instr, |a, b| value_equal(a, b)),
-            Op::SNEq => self.execute_set_instr(instr, |a, b| !value_equal(a, b)),
+            Op::SEq => self.execute_set_instr(instr, |a, b| a == b),
+            Op::SNEq => self.execute_set_instr(instr, |a, b| a != b),
             Op::ISLt => self.execute_set_instr(instr, int_cmp(|a, b| a < b)),
             Op::ISLte => self.execute_set_instr(instr, int_cmp(|a, b| a <= b)),
             Op::FSLt => self.execute_set_instr(instr, float_cmp(|a, b| a < b)),
@@ -163,14 +167,14 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
                 Ok(ControlFlow::Continue)
             }
             Op::Call => {
-                let value = self.read_value(instr.src1());
+                let value: Value<'m, 's> = self.read_value(instr.src1());
                 match value.tag() {
                     ValueTag::HostFun => {
                         let fun = value.as_host_fun();
                         let args_start = instr.args_start() as usize;
                         self.write_reg(
                             instr.dst(),
-                            fun(self.value_stack, self.mutator, self.value_stack_frame + args_start)?,
+                            fun(&self.value_stack, self.mutator, self.value_stack_frame + args_start)?,
                         );
                         self.ip += 1;
                     }
@@ -186,7 +190,7 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
                 Ok(ControlFlow::Continue)
             }
             Op::Ret => {
-                let value = self.read_value(instr.src1());
+                let value: Value<'m, 's> = self.read_value(instr.src1());
                 let Some((prev_ip, prev_fun)) = self.call_stack.pop() else {
                     return Ok(ControlFlow::Break);
                 };
@@ -205,7 +209,8 @@ impl<'m, 's, 'h> VM<'m, 's, 'h> {
                 Ok(ControlFlow::Continue)
             }
             Op::ArrayGet => {
-                let array = self.read_value(instr.src1()).as_array();
+                let v: Value<'m, 's> = self.read_value(instr.src1());
+                let array: Object<'m, Array<'s>> = v.as_array();
                 let index = self.read_value(instr.src2()).as_int();
                 self.write_reg(instr.dst(), array.get(index as usize));
                 self.ip += 1;

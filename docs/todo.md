@@ -13,7 +13,6 @@
 - Span information in AST nodes. MEDIUM
 - Tree sitter grammar. HARD
 - Garbage collection
-- Length of array as built in operation
 - Array equality
 - Strings
 
@@ -22,6 +21,7 @@
 
 # DONE
 
+- Length of array as built in operation
 - Break and continue statements. MEDIUM
 - Create arrays with default element and size. MEDIUM
 - Unary ops. EASY

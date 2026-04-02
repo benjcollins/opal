@@ -49,9 +49,9 @@ pub fn fun(_: TokenStream, item: TokenStream) -> TokenStream {
                 }
             )*
 
-            fn inner<'m, 's>(value_stack: opal::heap::Object<'m, opal::heap::Array<'s>>, value_stack_frame: usize) -> Result<opal::value::Value<'m, 's>, RuntimeError> {
+            fn inner<'m, 's, 'h>(value_stack: &opal::heap::stack::Stack<'h, 's>, mutator: &'m opal::heap::mutator::Mutator<'h>, value_stack_frame: usize) -> Result<opal::value::Value<'m, 's>, RuntimeError> {
                 #(
-                    let #pat = <#ty as opal::value::ValueConv<'m, 's>>::from_value(value_stack.get(value_stack_frame + #index));
+                    let #pat = <#ty as opal::value::ValueConv<'m, 's>>::from_value(value_stack.get(value_stack_frame + #index, mutator));
                 )*
                 <#ret_ty as opal::value::NativeFunResult<'m, 's>>::map(#block)
             }

@@ -4,7 +4,7 @@ use elsa::FrozenVec;
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::{Heap, Mutator, Stack},
+    heap::{Heap, mutator::Mutator, stack::Stack},
     infer::infer_fun,
     lower::{CompiledFun, lower_fun},
     ty::{BorrowedType, FunSig, Type},
@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub type NativeFun = for<'m, 's, 'h> fn(
-    value_stack: Stack<'h, 's>,
+    value_stack: &Stack<'h, 's>,
     mutator: &'m Mutator<'h>,
     value_stack_base: usize,
 ) -> Result<Value<'m, 's>, RuntimeError>;
@@ -59,7 +59,7 @@ impl<'s> Runtime<'s> {
             compiled_funs: FrozenVec::new(),
         }
     }
-    pub fn register_native_fun(&mut self, fun: TypedNativeFun) {
+    pub fn register_native_fun(&self, fun: TypedNativeFun) {
         self.fun_sigs.borrow_mut().insert(Ident::new(fun.name), fun.sig());
         self.funs
             .borrow_mut()
