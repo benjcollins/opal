@@ -11,15 +11,16 @@ use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
     let heap = Heap::new().unwrap();
-    let runtime = Runtime::new(heap);
+    let runtime = Runtime::new(&heap);
 
     runtime.register_native_fun(len);
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print);
 
-    let path = Path::new("../examples/example.opal");
-    let source = fs::read_to_string(path).unwrap();
-    let (module, errors) = parse_module(&source, Some(path));
+    // let path = Path::new("../examples/example.opal");
+    // let source = fs::read_to_string(path).unwrap();
+    let source = include_str!("../../examples/example.opal");
+    let (module, errors) = parse_module(&source, None);
     let module = match module {
         Some(module) if errors.is_empty() => module,
         _ => {

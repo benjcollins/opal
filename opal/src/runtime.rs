@@ -37,9 +37,9 @@ impl TypedNativeFun {
     }
 }
 
-pub struct Runtime<'s> {
+pub struct Runtime<'s, 'h> {
     compiled_funs: FrozenVec<Box<CompiledFun<'s>>>,
-    heap: Heap,
+    heap: &'h Heap,
     fun_sigs: RefCell<HashMap<Ident, FunSig>>,
     pub funs: RefCell<HashMap<Ident, Fun<'s>>>,
 }
@@ -50,8 +50,8 @@ pub enum Fun<'s> {
     Compiled(&'s CompiledFun<'s>),
 }
 
-impl<'s> Runtime<'s> {
-    pub fn new(heap: Heap) -> Runtime<'s> {
+impl<'s, 'h> Runtime<'s, 'h> {
+    pub fn new(heap: &'h Heap) -> Runtime<'s, 'h> {
         Runtime {
             heap,
             fun_sigs: RefCell::new(HashMap::new()),
@@ -124,22 +124,41 @@ impl<'s> Runtime<'s> {
             funs.get(&Ident::new(name)).copied()
         };
 
-        let Fun::Compiled(fun) = fun.unwrap() else { panic!() };
+        let Fun::Compiled(mut fun) = fun.unwrap() else { panic!() };
 
-        let mutator = self.heap.mutator();
-
-        let mut vm = VM {
-            call_stack: vec![],
-            value_stack: self.heap.create_stack(),
-            mutator: &mutator,
-            ip: 0,
-            value_stack_frame: 0,
-            fun,
-        };
+        let mut call_stack = vec![];
+        let mut value_stack = self.heap.new_stack();
+        let mut ip = 0;
+        let mut value_stack_frame = 0;
 
         let mut cf = ControlFlow::Continue;
         while cf.is_continue() {
-            cf = vm.execute_next_instr()?;
+            let mutator = self.heap.new_mutator();
+
+            let mut vm = VM {
+                call_stack,
+                value_stack,
+                mutator: &mutator,
+                ip,
+                value_stack_frame,
+                fun,
+            };
+
+            for _ in 0..1000 {
+                if cf.is_break() {
+                    break;
+                }
+                cf = vm.execute_next_instr()?;
+            }
+
+            call_stack = vm.call_stack;
+            value_stack = vm.value_stack;
+            ip = vm.ip;
+            value_stack_frame = vm.value_stack_frame;
+            fun = vm.fun;
+
+            mutator.finish();
+            self.heap.collect_garabge();
         }
 
         Ok(())

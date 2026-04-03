@@ -2,13 +2,16 @@ use opal::{heap::Heap, value::Value};
 
 fn main() {
     let heap = Heap::new().expect("could not create heap!");
+    let mut stack = heap.new_stack();
 
-    let mutator = heap.mutator();
-    let array = mutator.alloc_array(2);
-    array.set(0, Value::int(42));
+    heap.with_mutator(|mutator| {
+        let array = mutator.alloc_array(2);
+        stack.set(0, Value::array(array), &mutator);
+    });
 
-    let mut stack = heap.create_stack();
+    heap.collect_garabge();
 
-    // stack.grow(10, &mutator);
-    stack.set(0, Value::array(array), &mutator);
+    heap.with_mutator(|mutator| {
+        let _ = stack.get(0, mutator).as_array();
+    });
 }

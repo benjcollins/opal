@@ -1,6 +1,7 @@
 use std::{
     alloc::{Layout, dealloc},
     marker::PhantomData,
+    ptr::drop_in_place,
 };
 
 use crate::{
@@ -63,6 +64,7 @@ impl<'h, 's> Drop for Stack<'h, 's> {
             if !next.is_null() {
                 (*next).prev = prev;
             }
+            drop_in_place(self.inner);
             dealloc(self.inner.cast(), Layout::new::<StackInner>());
         }
     }

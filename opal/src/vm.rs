@@ -16,11 +16,8 @@ use crate::{
 pub struct VM<'m, 's, 'h> {
     pub call_stack: Vec<(usize, &'s CompiledFun<'s>)>,
     pub value_stack: Stack<'h, 's>,
-
     pub fun: &'s CompiledFun<'s>,
-
     pub value_stack_frame: usize,
-
     pub ip: usize,
     pub mutator: &'m Mutator<'h>,
 }
