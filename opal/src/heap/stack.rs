@@ -2,6 +2,7 @@ use std::{
     alloc::{Layout, dealloc},
     marker::PhantomData,
     ptr::drop_in_place,
+    sync::atomic::{AtomicPtr, AtomicU8, Ordering},
 };
 
 use crate::{
@@ -19,8 +20,8 @@ pub(super) struct StackInner {
     pub(super) heap: *const Heap,
     pub(super) next: *mut StackInner,
     pub(super) prev: *mut StackInner,
-    pub(super) value_data: Vec<*mut ()>,
-    pub(super) value_tag: Vec<ValueTag>,
+    pub(super) value_data: Vec<AtomicPtr<()>>,
+    pub(super) value_tag: Vec<AtomicU8>,
 }
 
 impl<'h, 's> Stack<'h, 's> {
@@ -30,22 +31,18 @@ impl<'h, 's> Stack<'h, 's> {
             _phantom: PhantomData,
         }
     }
-    fn inner_mut<'m>(&mut self, _mutator: &'m Mutator<'h>) -> &mut StackInner {
-        unsafe { self.inner.as_mut_unchecked() }
+    pub fn get<'m>(&self, index: usize, _mutator: &'m Mutator<'h>) -> Value<'m, 's> {
+        unsafe {
+            let data = (&(*self.inner).value_data)[index].load(Ordering::Relaxed);
+            let tag = ValueTag::from_repr((&(*self.inner).value_tag)[index].load(Ordering::Relaxed)).unwrap();
+            Value::new(tag, data)
+        }
     }
-    fn inner<'m>(&self, _mutator: &'m Mutator<'h>) -> &StackInner {
-        unsafe { self.inner.as_ref_unchecked() }
-    }
-    pub fn get<'m>(&self, index: usize, mutator: &'m Mutator<'h>) -> Value<'m, 's> {
-        let inner = self.inner(mutator);
-        let data = inner.value_data[index];
-        let tag = inner.value_tag[index];
-        unsafe { Value::new(tag, data) }
-    }
-    pub fn set<'m>(&mut self, index: usize, value: Value, mutator: &'m Mutator<'h>) {
-        let inner = self.inner_mut(mutator);
-        inner.value_data[index] = value.data();
-        inner.value_tag[index] = value.tag();
+    pub fn set<'m>(&self, index: usize, value: Value, _mutator: &'m Mutator<'h>) {
+        unsafe {
+            (&(*self.inner).value_data)[index].store(value.data(), Ordering::Relaxed);
+            (&(*self.inner).value_tag)[index].store(value.tag() as u8, Ordering::Relaxed);
+        }
     }
 }
 

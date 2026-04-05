@@ -8,7 +8,7 @@ use std::{
     ptr,
     sync::{
         Mutex, RwLock,
-        atomic::{AtomicBool, AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU8, Ordering},
     },
 };
 
@@ -62,10 +62,13 @@ impl Heap {
             let mut stacks_head = self.stacks_head.lock().unwrap();
             let inner = alloc(Layout::new::<StackInner>()).cast::<StackInner>();
             (*inner).next = *stacks_head;
+            if !(*stacks_head).is_null() {
+                (**stacks_head).prev = inner;
+            }
             (*inner).prev = ptr::null_mut();
             (*inner).heap = ptr::from_ref(self);
-            (&raw mut (*inner).value_data).write(vec![ptr::null_mut(); 1024]);
-            (&raw mut (*inner).value_tag).write(vec![ValueTag::Unit; 1024]);
+            (&raw mut (*inner).value_data).write(Vec::from_iter((0..1024).map(|_| AtomicPtr::new(ptr::null_mut()))));
+            (&raw mut (*inner).value_tag).write(Vec::from_iter((0..1024).map(|_| AtomicU8::new(ValueTag::Unit as u8))));
             *stacks_head = inner;
             Stack::new(inner)
         }
@@ -77,7 +80,7 @@ impl Heap {
             let mut count = 0;
             while !cur_object.is_null() {
                 count += 1;
-                cur_object = (*cur_object).next;
+                cur_object = (*cur_object).next.load(Ordering::Relaxed);
             }
             count
         }
@@ -102,7 +105,7 @@ unsafe fn unmark_all_objects(objects: &mut Objects) {
         let mut cur_object = *objects.head.get_mut();
         while !cur_object.is_null() {
             (*cur_object).marked = false;
-            cur_object = (*cur_object).next;
+            cur_object = (*cur_object).next.load(Ordering::Relaxed);
         }
     }
 }
@@ -111,14 +114,11 @@ unsafe fn add_roots_to_work_list(stacks_head: *mut StackInner, work_list: &mut V
     unsafe {
         let mut cur_stack = stacks_head;
         while !cur_stack.is_null() {
-            let values = (*cur_stack)
-                .value_data
-                .iter()
-                .copied()
-                .zip((*cur_stack).value_tag.iter().copied());
+            let values = (*cur_stack).value_data.iter().zip((*cur_stack).value_tag.iter());
 
             for (value, tag) in values {
-                if tag.is_array() {
+                if ValueTag::from_repr(tag.load(Ordering::Relaxed)).unwrap().is_array() {
+                    let value = value.load(Ordering::Relaxed);
                     work_list.push_back(value.cast::<ObjectHeader>());
                 }
             }
@@ -155,14 +155,16 @@ unsafe fn sweep_unreachable_objects(objects: &mut Objects) {
         let mut prev_object: *mut ObjectHeader = ptr::null_mut();
         let mut cur_object = *objects.head.get_mut();
         while !cur_object.is_null() {
-            let next_object = (*cur_object).next;
+            let next_object = (*cur_object).next.load(Ordering::Relaxed);
             if (*cur_object).marked {
                 prev_object = cur_object;
             } else {
                 if !prev_object.is_null() {
-                    (*prev_object).next = (*cur_object).next;
+                    (*prev_object)
+                        .next
+                        .store((*cur_object).next.load(Ordering::Relaxed), Ordering::Relaxed);
                 } else {
-                    *objects.head.get_mut() = (*cur_object).next;
+                    *objects.head.get_mut() = (*cur_object).next.load(Ordering::Relaxed);
                 }
                 let size = match (*cur_object).tag {
                     Tag::Array => {
@@ -187,8 +189,21 @@ impl Objects {
             let layout = Layout::from_size_align_unchecked(size, HEAP_ALIGN);
             let ptr = alloc(layout).cast::<ObjectHeader>();
             (*ptr).tag = tag;
-            (*ptr).next = self.head.swap(ptr, Ordering::Relaxed);
             (*ptr).marked = false;
+            let mut head = self.head.load(Ordering::Relaxed);
+            (*ptr).next.store(head, Ordering::Relaxed);
+            loop {
+                match self
+                    .head
+                    .compare_exchange(head, ptr, Ordering::Release, Ordering::Relaxed)
+                {
+                    Ok(_) => break,
+                    Err(new_head) => {
+                        head = new_head;
+                        (*ptr).next.store(head, Ordering::Relaxed);
+                    }
+                }
+            }
             ptr
         }
     }

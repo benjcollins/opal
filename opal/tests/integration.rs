@@ -53,25 +53,25 @@ fn run_test(name: &str, source: &str, path: &Path, heap: &Heap) -> Result<(), Fa
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
 
-    // fs::create_dir_all("tests/output")?;
-    // let path = format!("tests/output/{}.asm", module.name.0);
-    // if !fs::exists(&path)? {
-    //     let mut file = File::create(&path)?;
-    //     let funs = runtime.funs.borrow();
-    //     let mut fun_names: Vec<_> = funs.keys().collect();
-    //     fun_names.sort_by_key(|name| name.0.as_str());
-    //     for name in fun_names {
-    //         let fun = funs.get(name).unwrap();
-    //         if let Fun::Compiled(fun) = fun {
-    //             writeln!(file, "{}:", name.0)?;
-    //             for i in 0..fun.bytecode.len() {
-    //                 writeln!(file, "  {}", fun.bytecode[i])?;
-    //             }
-    //             writeln!(file)?;
-    //         }
-    //     }
-    //     file.flush()?;
-    // }
+    fs::create_dir_all("tests/output")?;
+    let path = format!("tests/output/{}.asm", module.name.0);
+    if !fs::exists(&path)? {
+        let mut file = File::create(&path)?;
+        let funs = runtime.funs.borrow();
+        let mut fun_names: Vec<_> = funs.keys().collect();
+        fun_names.sort_by_key(|name| name.0.as_str());
+        for name in fun_names {
+            let fun = funs.get(name).unwrap();
+            if let Fun::Compiled(fun) = fun {
+                writeln!(file, "{}:", name.0)?;
+                for i in 0..fun.bytecode.len() {
+                    writeln!(file, "  {}", fun.bytecode[i])?;
+                }
+                writeln!(file)?;
+            }
+        }
+        file.flush()?;
+    }
 
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())
@@ -79,18 +79,17 @@ fn run_test(name: &str, source: &str, path: &Path, heap: &Heap) -> Result<(), Fa
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Arguments::from_args();
-    // args.test_threads = Some(1);
 
     let mut tests = vec![];
 
-    // fs::create_dir_all("tests/output")?;
+    fs::create_dir_all("tests/output")?;
 
-    // for item in fs::read_dir("tests/output")? {
-    //     let item = item?;
-    //     if item.file_type()?.is_file() {
-    //         fs::remove_file(item.path())?;
-    //     }
-    // }
+    for item in fs::read_dir("tests/output")? {
+        let item = item?;
+        if item.file_type()?.is_file() {
+            fs::remove_file(item.path())?;
+        }
+    }
 
     let heap = Arc::new(Heap::new().unwrap());
 

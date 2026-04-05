@@ -15,7 +15,7 @@ pub struct Object<'m, T> {
 }
 
 pub(super) struct ObjectHeader {
-    pub(super) next: *mut ObjectHeader,
+    pub(super) next: AtomicPtr<ObjectHeader>,
     pub(super) tag: Tag,
     pub(super) marked: bool,
 }
