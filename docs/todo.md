@@ -8,7 +8,6 @@
 - Flat memory structure for functions. MEDIUM
 - Module scoping. MEDIUM
 - Snapshot testing. MEDIUM
-- String interner should probably be syncable. HARD
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
 - Tree sitter grammar. HARD
@@ -21,6 +20,7 @@
 
 # DONE
 
+- String interner should probably be syncable. HARD
 - Length of array as built in operation
 - Break and continue statements. MEDIUM
 - Create arrays with default element and size. MEDIUM

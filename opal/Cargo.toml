@@ -14,7 +14,6 @@ libtest-mimic = "0.8.1"
 opal_proc = { path = "../opal_proc" }
 
 [lib]
-test = false
 doctest = false
 
 [[test]]

@@ -5,7 +5,7 @@ pub struct Ident(pub InternedStr);
 
 impl Ident {
     pub fn new(s: &str) -> Ident {
-        Ident(InternedStr::intern(s))
+        Ident(InternedStr::new(s))
     }
 }
 
