@@ -1,17 +1,4 @@
-module main;
-
-fun main() {
-    let array = [1, 2, 3, 4, 5, 6, 7, 8];
-    print(filter_int(array, is_even));
-}
-
-fun is_even(n: Int) -> Bool {
-    return n % 2 == 0;
-}
-
-fun double(n: Int) -> Int {
-    return n * 2;
-}
+module fcf;
 
 fun map_int(input: Array[Int], mapping: fun(Int) -> Int) -> Array[Int] {
     let output = [0; len(input)];
@@ -41,4 +28,24 @@ fun filter_int(input: Array[Int], filterer: fun(Int) -> Bool) -> Array[Int] {
         i += 1;
     }
     return output;
+}
+
+fun is_even(n: Int) -> Bool {
+    return n % 2 == 0;
+}
+
+fun double(n: Int) -> Int {
+    return n * 2;
+}
+
+fun test_double() {
+    let input = [1, 2, 3];
+    let output = map_int(input, double);
+    assert(output == [2, 4, 6]);
+}
+
+fun test_filter() {
+    let input = [1, 2, 3, 4, 5, 6];
+    let output = filter_int(input, is_even);
+    assert(output == [2, 4, 6]);
 }

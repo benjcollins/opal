@@ -11,8 +11,6 @@
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
 - Tree sitter grammar. HARD
-- Garbage collection
-- Array equality
 - Strings
 
 # IN DEV
@@ -20,6 +18,8 @@
 
 # DONE
 
+- Garbage collection
+- Array equality
 - String interner should probably be syncable. HARD
 - Length of array as built in operation
 - Break and continue statements. MEDIUM

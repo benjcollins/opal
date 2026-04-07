@@ -42,6 +42,7 @@ pub enum Expr {
     ArrayDefaultLength(Box<Expr>, Box<Expr>),
     Index(Box<Expr>, Box<Expr>),
     Prefix(PrefixOp, Box<Expr>),
+    FunType(Vec<Expr>, Option<Box<Expr>>),
     Infix {
         left: Box<Expr>,
         op: InfixOp,

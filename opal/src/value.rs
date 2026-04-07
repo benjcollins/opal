@@ -22,7 +22,7 @@ pub enum ValueTag {
     Fun,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct Value<'m, 's> {
     tag: ValueTag,
     data: *mut (),
@@ -70,6 +70,32 @@ type Float = f64;
 
 #[cfg(target_pointer_width = "32")]
 type Float = f32;
+
+impl PartialEq for Value<'_, '_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.tag != other.tag {
+            return false;
+        }
+        match self.tag {
+            ValueTag::Int | ValueTag::Float | ValueTag::Bool | ValueTag::Unit | ValueTag::Fun | ValueTag::HostFun => {
+                self.data == other.data
+            }
+            ValueTag::Array => {
+                let array1 = self.as_array();
+                let array2 = other.as_array();
+                if array1.len() != array2.len() {
+                    return false;
+                }
+                for i in 0..array1.len() {
+                    if array1.get(i) != array2.get(i) {
+                        return false;
+                    }
+                }
+                true
+            }
+        }
+    }
+}
 
 impl<'m, 's> TryFrom<Value<'m, 's>> for StaticValue<'s> {
     type Error = ();

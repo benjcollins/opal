@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::process::ExitCode;
 
 use opal::ast::Ident;
@@ -15,10 +17,10 @@ fn main() -> ExitCode {
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print);
 
-    // let path = Path::new("../examples/example.opal");
-    // let source = fs::read_to_string(path).unwrap();
-    let source = include_str!("../../examples/example.opal");
-    let (module, errors) = parse_module(&source, None);
+    let path = Path::new("../examples/example.opal");
+    let source = fs::read_to_string(path).unwrap();
+    // let source = include_str!("../../examples/example.opal");
+    let (module, errors) = parse_module(&source, Some(path));
     let module = match module {
         Some(module) if errors.is_empty() => module,
         _ => {

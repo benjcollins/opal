@@ -48,6 +48,22 @@ impl TryFrom<&Expr> for Type {
                 "Void" => Type::Void,
                 _ => return Err(()),
             },
+            Expr::FunType(params, returns) => {
+                let params = params
+                    .iter()
+                    .map(|param| param.try_into())
+                    .collect::<Result<Vec<Type>, _>>()?;
+                let returns = if let Some(returns) = returns {
+                    Box::new(returns.as_ref().try_into()?)
+                } else {
+                    Box::new(Type::Unit)
+                };
+                Type::Fun(FunSig {
+                    generics: vec![],
+                    params,
+                    returns,
+                })
+            }
             Expr::Index(ty, param) => {
                 let Expr::Var(VarUse(Ident(name))) = ty.as_ref() else {
                     return Err(());

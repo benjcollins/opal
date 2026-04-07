@@ -17,14 +17,11 @@ test_double:
   ArraySet r(0), c(5), c(6);
   Mov r(2), r(0);
   Call r(1), c(7), 2;
-  ArrayGet r(3), r(0), c(9);
-  SEq r(2), r(3), c(10);
+  ArrayInit r(3), c(9);
+  ArraySet r(3), c(10), c(11);
+  ArraySet r(3), c(12), c(13);
+  ArraySet r(3), c(14), c(15);
+  SEq r(2), r(0), r(3);
   Call r(1), c(8), 2;
-  ArrayGet r(3), r(0), c(12);
-  SEq r(2), r(3), c(13);
-  Call r(1), c(11), 2;
-  ArrayGet r(3), r(0), c(15);
-  SEq r(2), r(3), c(16);
-  Call r(1), c(14), 2;
-  Ret c(17);
+  Ret c(16);
 

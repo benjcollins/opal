@@ -5,9 +5,7 @@ fun test_double() {
 
     double(array);
 
-    assert(array[0] == 2);
-    assert(array[1] == 4);
-    assert(array[2] == 6);
+    assert(array == [2, 4, 6]);
 }
 
 fun double(array: Array[Int]) {

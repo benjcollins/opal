@@ -70,7 +70,18 @@ fn instantiate(map: &mut HashMap<Ident, Type>, arg: &Type, param: &Type) -> Resu
         (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) => Ok(()),
         (Type::Numeric(a), Type::Numeric(b)) if a == b => Ok(()),
         (Type::Array(a), Type::Array(b)) => instantiate(map, a, b),
-        (Type::Fun(_), Type::Fun(_)) => todo!(),
+        (Type::Fun(a), Type::Fun(b)) => {
+            if !a.generics.is_empty() || !b.generics.is_empty() {
+                return Err(());
+            }
+            if a.params.len() != b.params.len() {
+                return Err(());
+            }
+            for (a, b) in a.params.iter().zip(&b.params) {
+                instantiate(map, a, b)?;
+            }
+            instantiate(map, &a.returns, &b.returns)
+        }
         (ty, Type::Generic(name)) => match map.entry(name.clone()) {
             Entry::Occupied(entry) if entry.get() == ty => Ok(()),
             Entry::Vacant(entry) => {
@@ -147,7 +158,7 @@ impl<'e> Inferer<'e> {
                 } else if let Some(sig) = self.env.get(var.ident()) {
                     (TypedVar::Env(var.ident().clone()), Type::Fun(sig.clone()))
                 } else {
-                    dbg!(var);
+                    println!("undefined variable: {}", var.ident().0.as_str());
                     return Err(TypeError("undefined variable"));
                 };
                 (TypedExpr::Var(typed_var), ty)
@@ -206,6 +217,7 @@ impl<'e> Inferer<'e> {
                 };
                 (TypedExpr::Prefix(typed_op, Box::new(typed_expr)), ty)
             }
+            Expr::FunType(_, _) => panic!(),
         };
 
         Ok((typed_expr, ty))

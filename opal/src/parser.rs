@@ -223,6 +223,16 @@ impl<'s, 'p> Parser<'s, 'p> {
         if let Some(value) = self.consume(Float) {
             return Ok(Expr::Lit(Lit::Float(value)));
         }
+        if self.advance(Keyword::Fun) {
+            self.expect(Symbol::OpenParen)?;
+            let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |_self| _self.parse_expr(0))?;
+            let returns = if self.advance(Symbol::RightArrow) {
+                Some(Box::new(self.parse_expr(0)?))
+            } else {
+                None
+            };
+            return Ok(Expr::FunType(params, returns));
+        }
         if self.advance(Symbol::OpenBracket) {
             if self.advance(Symbol::CloseBracket) {
                 return Ok(Expr::ArrayElements(vec![]));

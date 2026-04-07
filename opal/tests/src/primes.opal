@@ -48,9 +48,5 @@ fun primes(n: Int) -> Array[Int] {
 
 fun test_primes_10() {
     let primes = primes(10);
-    assert(primes[0] == 1);
-    assert(primes[1] == 2);
-    assert(primes[2] == 3);
-    assert(primes[3] == 5);
-    assert(primes[4] == 7);
+    assert(primes == [1, 2, 3, 5, 7]);
 }
