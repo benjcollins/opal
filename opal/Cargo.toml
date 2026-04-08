@@ -8,6 +8,7 @@ elsa = "1.11.2"
 strum = { version = "0.27.2", features = ["derive"] }
 opal_proc = { path = "../opal_proc" }
 colored = "3.1.1"
+dashmap = "6.1.0"
 
 [dev-dependencies]
 libtest-mimic = "0.8.1"
