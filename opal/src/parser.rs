@@ -14,7 +14,7 @@ use crate::{
 pub struct Parser<'s, 'p> {
     pub path: Option<&'p Path>,
     pub lexer: Lexer<'s>,
-    pub token: Option<(Token<'s>, Span)>,
+    pub token: Option<(Token, Span)>,
     pub expected: Vec<TokenKind>,
     pub errors: Vec<ParseError<'s, 'p>>,
     pub recover: HashMap<TokenKind, u32>,
@@ -23,7 +23,7 @@ pub struct Parser<'s, 'p> {
 #[derive(Debug)]
 pub struct ParseError<'s, 'p> {
     path: Option<&'p Path>,
-    token: Option<(Token<'s>, Span)>,
+    token: Option<(Token, Span)>,
     expected: Vec<TokenKind>,
     line: u32,
     column: u32,
@@ -152,13 +152,13 @@ impl<'s, 'p> Parser<'s, 'p> {
             recover: HashMap::new(),
         }
     }
-    fn expect<T>(&mut self, token: impl TokenMatcher<Contents<'s> = T>) -> Result<T, Recovered> {
+    fn expect<T>(&mut self, token: impl TokenMatcher<Contents = T>) -> Result<T, Recovered> {
         match self.consume(token) {
             Some(token) => Ok(token),
             None => Err(self.error()),
         }
     }
-    fn consume<T>(&mut self, token_type: impl TokenMatcher<Contents<'s> = T>) -> Option<T> {
+    fn consume<T>(&mut self, token_type: impl TokenMatcher<Contents = T>) -> Option<T> {
         let (token, span) = self.token.take()?;
         match token_type.matches(token) {
             Ok(item) => {
@@ -270,7 +270,7 @@ impl<'s, 'p> Parser<'s, 'p> {
             return Ok(Expr::Lit(Lit::Bool(false)));
         }
         if let Some(ident) = self.consume(token::Ident) {
-            return Ok(Expr::Var(VarUse(Ident::new(ident))));
+            return Ok(Expr::Var(VarUse(Ident(ident))));
         }
         Err(self.error())
     }
@@ -320,7 +320,7 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_var_def(&mut self) -> Result<VarDef, Recovered> {
         let mutable = self.advance(Keyword::Mut);
-        let ident = Ident::new(self.expect(token::Ident)?);
+        let ident = Ident(self.expect(token::Ident)?);
         Ok(VarDef { mutable, ident })
     }
     pub fn parse_if(&mut self) -> Result<If, Recovered> {
@@ -434,7 +434,7 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {
         if self.advance(Keyword::Fun) {
-            let name = Ident::new(self.expect(token::Ident)?);
+            let name = Ident(self.expect(token::Ident)?);
             self.expect(Symbol::OpenParen)?;
             let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
                 let var = self_.parse_var_def()?;
@@ -460,7 +460,7 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     fn parse_module(&mut self) -> Result<Module, Recovered> {
         self.expect(Keyword::Module)?;
-        let name = Ident::new(self.expect(token::Ident)?);
+        let name = Ident(self.expect(token::Ident)?);
         self.expect(Symbol::Semicolon)?;
 
         let mut items = vec![];

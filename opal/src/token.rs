@@ -1,15 +1,17 @@
-use std::{borrow::Cow, fmt};
+use std::fmt;
 
 use strum::{Display, EnumIter, EnumString};
 
+use crate::intern::InternedStr;
+
 #[derive(Debug, Clone)]
-pub enum Token<'s> {
-    Ident(&'s str),
+pub enum Token {
+    Ident(InternedStr),
     Int(i64),
     Float(f64),
     Keyword(Keyword),
     Symbol(Symbol),
-    String(Cow<'s, str>),
+    String(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,7 +136,7 @@ impl Symbol {
     }
 }
 
-impl<'s> Token<'s> {
+impl Token {
     pub fn kind(&self) -> TokenKind {
         match self {
             Token::Ident(_) => TokenKind::Ident,
@@ -161,16 +163,16 @@ impl fmt::Display for TokenKind {
 }
 
 pub trait TokenMatcher: Clone {
-    type Contents<'s>;
+    type Contents;
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<Self::Contents<'s>, Token<'s>>;
+    fn matches(&self, token: Token) -> Result<Self::Contents, Token>;
     fn kind(&self) -> TokenKind;
 }
 
 impl TokenMatcher for Symbol {
-    type Contents<'s> = ();
+    type Contents = ();
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
+    fn matches(&self, token: Token) -> Result<(), Token> {
         match token {
             Token::Symbol(s) if s == *self => Ok(()),
             token => Err(token),
@@ -183,9 +185,9 @@ impl TokenMatcher for Symbol {
 }
 
 impl TokenMatcher for Keyword {
-    type Contents<'s> = ();
+    type Contents = ();
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<(), Token<'s>> {
+    fn matches(&self, token: Token) -> Result<(), Token> {
         match token {
             Token::Keyword(k) if k == *self => Ok(()),
             token => Err(token),
@@ -201,9 +203,9 @@ impl TokenMatcher for Keyword {
 pub struct Ident;
 
 impl TokenMatcher for Ident {
-    type Contents<'s> = &'s str;
+    type Contents = InternedStr;
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<&'s str, Token<'s>> {
+    fn matches<'s>(&self, token: Token) -> Result<InternedStr, Token> {
         match token {
             Token::Ident(ident) => Ok(ident),
             token => Err(token),
@@ -219,9 +221,9 @@ impl TokenMatcher for Ident {
 pub struct Int;
 
 impl TokenMatcher for Int {
-    type Contents<'s> = i64;
+    type Contents = i64;
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<i64, Token<'s>> {
+    fn matches<'s>(&self, token: Token) -> Result<i64, Token> {
         match token {
             Token::Int(value) => Ok(value),
             token => Err(token),
@@ -237,9 +239,9 @@ impl TokenMatcher for Int {
 pub struct Float;
 
 impl TokenMatcher for Float {
-    type Contents<'s> = f64;
+    type Contents = f64;
 
-    fn matches<'s>(&self, token: Token<'s>) -> Result<f64, Token<'s>> {
+    fn matches(&self, token: Token) -> Result<f64, Token> {
         match token {
             Token::Float(value) => Ok(value),
             token => Err(token),

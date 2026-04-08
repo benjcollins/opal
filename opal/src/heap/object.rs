@@ -82,11 +82,12 @@ impl<'m, 's> Object<'m, Array<'s>> {
     pub fn set(&self, index: usize, value: Value<'m, 's>) {
         unsafe {
             let tag_atomic = &(*self.header()).tag;
-            if tag_atomic.load(Ordering::Relaxed) == value.tag() as u8 {
+            let tag = ValueTag::from_repr(tag_atomic.load(Ordering::Relaxed)).unwrap();
+            if tag == value.tag() {
                 self.slice()[index].store(value.data(), Ordering::Relaxed);
                 return;
             }
-            if tag_atomic.load(Ordering::Relaxed) == ValueTag::Unit as u8 {
+            if tag == ValueTag::Unit {
                 match tag_atomic.compare_exchange(
                     ValueTag::Unit as u8,
                     value.tag() as u8,

@@ -6,16 +6,17 @@ use std::{
     str,
     sync::{
         RwLock,
-        atomic::{AtomicUsize, Ordering, fence},
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
 struct Interner {
-    id_to_str: HashMap<u32, StringEntry>,
+    id_to_entry: HashMap<u32, StringEntry>,
     str_to_id: HashMap<String, u32>,
     next_id: u32,
 }
 
+#[derive(Debug)]
 struct StringEntry {
     count: AtomicUsize,
     ptr: *mut u8,
@@ -33,7 +34,7 @@ static INTERNER: RwLock<Option<Interner>> = RwLock::new(None);
 fn with_interner_mut<T>(f: impl FnOnce(&mut Interner) -> T) -> T {
     let mut interner = INTERNER.write().unwrap();
     f(interner.get_or_insert_with(|| Interner {
-        id_to_str: HashMap::new(),
+        id_to_entry: HashMap::new(),
         str_to_id: HashMap::new(),
         next_id: 0,
     }))
@@ -52,7 +53,7 @@ impl InternedStr {
             InternedStr(match interner.str_to_id.entry(string.into()) {
                 Entry::Occupied(entry) => {
                     let id = *entry.get();
-                    let entry = interner.id_to_str.get(&id).unwrap();
+                    let entry = interner.id_to_entry.get(&id).unwrap();
                     entry.count.fetch_add(1, Ordering::Relaxed);
                     id
                 }
@@ -64,7 +65,7 @@ impl InternedStr {
                         let ptr = alloc(Layout::from_size_align_unchecked(len, 1));
                         copy(entry.key().as_ptr(), ptr, len);
                         let count = AtomicUsize::new(1);
-                        interner.id_to_str.insert(id, StringEntry { count, ptr, len });
+                        interner.id_to_entry.insert(id, StringEntry { count, ptr, len });
                         entry.insert(id);
                         id
                     }
@@ -73,7 +74,7 @@ impl InternedStr {
         })
     }
     fn with_entry<T>(&self, f: impl FnOnce(&StringEntry) -> T) -> T {
-        with_interner(|interner| f(interner.id_to_str.get(&self.0).unwrap()))
+        with_interner(|interner| f(interner.id_to_entry.get(&self.0).unwrap()))
     }
     pub fn as_str(&self) -> &str {
         self.with_entry(|entry| unsafe { str::from_raw_parts(entry.ptr, entry.len) })
@@ -94,16 +95,16 @@ impl Clone for InternedStr {
 
 impl Drop for InternedStr {
     fn drop(&mut self) {
-        let last = self.with_entry(|entry| entry.count.fetch_sub(1, Ordering::Release) == 1);
-        if last {
-            fence(Ordering::Acquire);
-            with_interner_mut(|interner| {
-                let entry = interner.id_to_str.remove(&self.0).unwrap();
+        with_interner_mut(|interner| {
+            let entry = interner.id_to_entry.get_mut(&self.0).unwrap();
+            *entry.count.get_mut() -= 1;
+            if *entry.count.get_mut() == 0 {
+                let entry = interner.id_to_entry.remove(&self.0).unwrap();
                 let str = unsafe { str::from_raw_parts(entry.ptr, entry.len) };
                 interner.str_to_id.remove(str);
                 unsafe { dealloc(entry.ptr, Layout::from_size_align_unchecked(entry.len, 1)) };
-            })
-        }
+            }
+        })
     }
 }
 

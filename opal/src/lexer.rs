@@ -2,7 +2,10 @@ use std::{cell::LazyCell, cmp::Reverse, str::FromStr};
 
 use strum::IntoEnumIterator;
 
-use crate::token::{Keyword, Symbol, Token};
+use crate::{
+    intern::InternedStr,
+    token::{Keyword, Symbol, Token},
+};
 
 pub struct Lexer<'src> {
     pub source: &'src str,
@@ -61,7 +64,7 @@ impl<'src> Lexer<'src> {
             self.advance();
         }
     }
-    pub fn next_token(&mut self) -> Option<(Token<'src>, Span)> {
+    pub fn next_token(&mut self) -> Option<(Token, Span)> {
         let mut start;
 
         let token = 'outer: loop {
@@ -80,7 +83,7 @@ impl<'src> Lexer<'src> {
                 let ident = &self.source[start..self.offset];
                 break Keyword::from_str(ident)
                     .map(Token::Keyword)
-                    .unwrap_or(Token::Ident(ident));
+                    .unwrap_or(Token::Ident(InternedStr::new(ident)));
             }
 
             if ch.is_numeric() {
@@ -103,6 +106,13 @@ impl<'src> Lexer<'src> {
                     break Token::Int(value);
                 }
             }
+
+            // if self.consume("\"") {
+            //     let mut string = String::new();
+            //     if self.consume("\\") {
+            //         if self.consume("\\") {}
+            //     }
+            // }
 
             if self.consume("//") {
                 self.skip_line_comment();
