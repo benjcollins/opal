@@ -68,7 +68,7 @@ impl TryFrom<&Expr> for Type {
                 let Expr::Var(VarUse(Ident(name))) = ty.as_ref() else {
                     return Err(());
                 };
-                if name.as_str() != "Array" {
+                if name.as_str() != "List" {
                     return Err(());
                 }
                 let param = param.as_ref().try_into()?;

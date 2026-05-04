@@ -1,6 +1,6 @@
 module fcf;
 
-fun map_int(input: Array[Int], mapping: fun(Int) -> Int) -> Array[Int] {
+fun map_int(input: List[Int], mapping: fun(Int) -> Int) -> List[Int] {
     let output = [0; len(input)];
     let i = 0;
     while (i < len(input)) {
@@ -10,7 +10,7 @@ fun map_int(input: Array[Int], mapping: fun(Int) -> Int) -> Array[Int] {
     return output;
 }
 
-fun filter_int(input: Array[Int], filterer: fun(Int) -> Bool) -> Array[Int] {
+fun filter_int(input: List[Int], filterer: fun(Int) -> Bool) -> List[Int] {
     let temp = [0; len(input)];
     let i = 0;
     let j = 0;

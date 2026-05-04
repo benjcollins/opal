@@ -4,7 +4,7 @@ use strum::{EnumIs, FromRepr, IntoStaticStr};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, FromRepr, IntoStaticStr)]
-pub enum Op {
+pub enum Opcode {
     Mov,
 
     IAdd,
@@ -39,8 +39,9 @@ pub enum Op {
     FSLt,
     FSLte,
 
-    ArrayInit,
-    ArraySet,
+    ListDefaultLength,
+    ListElements,
+    ListSet,
     ListGet,
 
     Jump,
@@ -66,24 +67,27 @@ impl Instr {
     pub fn src1(self) -> Operand {
         let idx = (self.0 >> 8) as u8;
         if self.0 >> 25 & 1 == 0 {
-            Operand::Stack(Reg(idx))
+            Operand::Stack(StackOperand(idx))
         } else {
-            Operand::Const(Cst(idx))
+            Operand::Const(ConstOperand(idx))
         }
     }
     pub fn src2(self) -> Operand {
         let idx = self.0 as u8;
         if self.0 >> 24 & 1 == 0 {
-            Operand::Stack(Reg(idx))
+            Operand::Stack(StackOperand(idx))
         } else {
-            Operand::Const(Cst(idx))
+            Operand::Const(ConstOperand(idx))
         }
     }
-    pub fn dst(self) -> Reg {
-        Reg((self.0 >> 16) as u8)
+    pub fn dst(self) -> StackOperand {
+        StackOperand((self.0 >> 16) as u8)
     }
     pub fn args_start(self) -> u8 {
         self.0 as u8
+    }
+    pub fn args_count(self) -> u8 {
+        (self.0 >> 8) as u8
     }
     pub fn branch_offset(self) -> i8 {
         (self.0 >> 16) as i8
@@ -91,23 +95,23 @@ impl Instr {
     pub fn jump_offset(self) -> i16 {
         self.0 as i16
     }
-    pub fn op(self) -> Op {
-        Op::from_repr((self.0 >> 26) as u8).expect("invalid operation!")
+    pub fn opcode(self) -> Opcode {
+        Opcode::from_repr((self.0 >> 26) as u8).expect("invalid operation!")
     }
 
-    pub fn set_op(&mut self, op: Op) {
+    pub fn set_opcode(&mut self, op: Opcode) {
         self.0 |= (op as u32) << 26;
     }
-    pub fn set_dst(&mut self, dst: Reg) {
+    pub fn set_dst(&mut self, dst: StackOperand) {
         self.0 |= (dst.0 as u32) << 16;
     }
     pub fn set_src1(&mut self, src1: Operand) {
         self.0 |= (src1.is_const() as u32) << 25;
-        self.0 |= (src1.idx() as u32) << 8;
+        self.0 |= (src1.index() as u32) << 8;
     }
     pub fn set_src2(&mut self, src2: Operand) {
         self.0 |= (src2.is_const() as u32) << 24;
-        self.0 |= src2.idx() as u32;
+        self.0 |= src2.index() as u32;
     }
     pub fn set_branch_offset(&mut self, offset: i8) {
         self.0 |= (offset as u8 as u32) << 16;
@@ -118,25 +122,27 @@ impl Instr {
     pub fn set_args_start(&mut self, args_start: u8) {
         self.0 |= args_start as u32;
     }
+    pub fn set_args_count(&mut self, args_count: u8) {
+        self.0 |= (args_count as u32) << 8;
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Reg(pub u8);
+#[derive(Debug, Clone, Copy)]
+pub struct StackOperand(pub u8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cst(pub u8);
+#[derive(Debug, Clone, Copy)]
+pub struct ConstOperand(pub u8);
 
 #[derive(Debug, EnumIs, Clone, Copy)]
 pub enum Operand {
-    Stack(Reg),
-    Const(Cst),
+    Stack(StackOperand),
+    Const(ConstOperand),
 }
 
 impl Operand {
-    pub fn idx(self) -> u8 {
+    pub fn index(self) -> u8 {
         match self {
-            Operand::Stack(reg) => reg.0,
-            Operand::Const(cst) => cst.0,
+            Operand::Stack(StackOperand(index)) | Operand::Const(ConstOperand(index)) => index,
         }
     }
 }
@@ -144,50 +150,57 @@ impl Operand {
 impl fmt::Display for Operand {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Operand::Stack(reg) => write!(f, "r({})", reg.0),
-            Operand::Const(cst) => write!(f, "c({})", cst.0),
+            Operand::Stack(operand) => write!(f, "{}", operand),
+            Operand::Const(operand) => write!(f, "{}", operand),
         }
     }
 }
 
-impl fmt::Display for Reg {
+impl fmt::Display for StackOperand {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "r({})", self.0)
+        write!(f, "stack({})", self.0)
+    }
+}
+
+impl fmt::Display for ConstOperand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "const({})", self.0)
     }
 }
 
 impl fmt::Display for Instr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let op: &'static str = self.op().into();
+        let op: &'static str = self.opcode().into();
         write!(f, "{}", op)?;
-        match self.op() {
-            Op::Mov => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::IAdd
-            | Op::ISub
-            | Op::IMul
-            | Op::IDiv
-            | Op::IMod
-            | Op::FAdd
-            | Op::FSub
-            | Op::FMul
-            | Op::FDiv
-            | Op::FMod
-            | Op::And
-            | Op::Or
-            | Op::XOr
-            | Op::ShiftLeft
-            | Op::ShiftRight => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
-            Op::BEq | Op::BNEq | Op::IBLt | Op::IBLte | Op::FBLt | Op::FBLte => {
+        match self.opcode() {
+            Opcode::Mov => write!(f, " {}, {}", self.dst(), self.src1()),
+            Opcode::IAdd
+            | Opcode::ISub
+            | Opcode::IMul
+            | Opcode::IDiv
+            | Opcode::IMod
+            | Opcode::FAdd
+            | Opcode::FSub
+            | Opcode::FMul
+            | Opcode::FDiv
+            | Opcode::FMod
+            | Opcode::And
+            | Opcode::Or
+            | Opcode::XOr
+            | Opcode::ShiftLeft
+            | Opcode::ShiftRight => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Opcode::BEq | Opcode::BNEq | Opcode::IBLt | Opcode::IBLte | Opcode::FBLt | Opcode::FBLte => {
                 write!(f, " {}, {}, {}", self.src1(), self.src2(), self.branch_offset())
             }
-            Op::SEq | Op::SNEq | Op::ISLt | Op::ISLte | Op::FSLt | Op::FSLte => {
+            Opcode::SEq | Opcode::SNEq | Opcode::ISLt | Opcode::ISLte | Opcode::FSLt | Opcode::FSLte => {
                 write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2())
             }
-            Op::Jump => write!(f, " {}", self.jump_offset()),
-            Op::Call => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
-            Op::Ret => write!(f, " {}", self.src1()),
-            Op::ArrayInit => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::ArraySet | Op::ListGet => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Opcode::Jump => write!(f, " {}", self.jump_offset()),
+            Opcode::Call => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
+            Opcode::Ret => write!(f, " {}", self.src1()),
+            Opcode::ListElements => write!(f, " {}, {}", self.dst(), self.src1()),
+            Opcode::ListDefaultLength => todo!(),
+            Opcode::ListSet | Opcode::ListGet => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
         }?;
         write!(f, ";")
     }

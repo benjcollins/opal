@@ -1,17 +1,17 @@
 module double;
 
 fun test_double() {
-    let array = [1, 2, 3];
+    let list = [1, 2, 3];
 
-    double(array);
+    double(list);
 
-    assert(array == [2, 4, 6]);
+    assert(list == [2, 4, 6]);
 }
 
-fun double(array: Array[Int]) {
+fun double(list: List[Int]) {
     let i = 0;
-    while (i < len(array)) {
-        array[i] *= 2;
+    while (i < len(list)) {
+        list[i] *= 2;
         i += 1;
     }
 }

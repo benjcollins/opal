@@ -1,10 +1,10 @@
 module sum;
 
-fun sum(array: Array[Int]) -> Int {
+fun sum(list: List[Int]) -> Int {
     let i = 0;
     let total = 0;
-    while (i < len(array)) {
-        total += array[i];
+    while (i < len(list)) {
+        total += list[i];
         i += 1;
     }
     return total;

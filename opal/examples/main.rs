@@ -1,17 +1,17 @@
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::RwLock;
 
-use opal::ast::Ident;
 use opal::heap::Heap;
 use opal::parser::parse_module;
-use opal::runtime::{Fun, Runtime};
-use opal::value::Array;
+use opal::runtime::Runtime;
+use opal::value::List;
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
-    let heap = Heap::new().unwrap();
-    let runtime = Runtime::new(&heap);
+    let heap = RwLock::new(Heap::init().unwrap());
+    let mut runtime = Runtime::new(&heap);
 
     runtime.register_native_fun(len);
     runtime.register_native_fun(assert);
@@ -19,7 +19,6 @@ fn main() -> ExitCode {
 
     let path = Path::new("../examples/example.opal");
     let source = fs::read_to_string(path).unwrap();
-    // let source = include_str!("../../examples/example.opal");
     let (module, errors) = parse_module(&source, Some(path));
     let module = match module {
         Some(module) if errors.is_empty() => module,
@@ -32,20 +31,19 @@ fn main() -> ExitCode {
     };
     runtime.compile_module(&module).unwrap();
 
-    if false {
-        let funs = runtime.funs.borrow();
-        let fun = funs.get(&Ident::new("main")).unwrap();
-        match fun {
-            Fun::Native(_) => todo!(),
-            Fun::Compiled(fun) => {
-                println!("main:");
-                for i in 0..fun.bytecode.len() {
-                    println!("  {}", fun.bytecode[i]);
-                }
-                println!();
-            }
-        }
-    }
+    // if false {
+    //     let fun = runtime.funs.get(&Ident::new("main")).unwrap();
+    //     match fun {
+    //         Fun::Native(_) => todo!(),
+    //         Fun::Compiled(fun) => {
+    //             println!("main:");
+    //             for i in 0..fun.bytecode.len() {
+    //                 println!("  {}", fun.bytecode[i]);
+    //             }
+    //             println!();
+    //         }
+    //     }
+    // }
 
     runtime.execute_fun("main").unwrap();
 
@@ -59,8 +57,8 @@ fn print<T>(item: T) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn len<T>(array: Array<T>) -> Result<i64, RuntimeError> {
-    Ok(array.len())
+fn len<T>(list: List<T>) -> Result<i64, RuntimeError> {
+    Ok(list.len() as i64)
 }
 
 #[opal_proc::fun]

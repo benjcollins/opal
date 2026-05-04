@@ -1,11 +1,10 @@
 # BACKLOG
 
-- Debugger.
 - CLI.
 
 # READY FOR DEV
 
-- Flat memory structure for functions. MEDIUM
+- Runtime errors and stack trace
 - Module scoping. MEDIUM
 - Snapshot testing. MEDIUM
 - Type error reporting. MEDIUM

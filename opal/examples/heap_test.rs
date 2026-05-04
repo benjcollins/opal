@@ -1,13 +1,14 @@
-use opal::{heap2::Heap, value::Value};
+use opal::{heap::Heap, value::Value};
 
 fn main() {
     let mut heap = Heap::init().expect("could not create heap!");
 
-    let function = heap.alloc_function(&[], &[Value::int(10)], 0);
-    let array = heap.alloc_array_elements(&[Value::int(5), Value::int(10)]);
+    let function = heap.alloc_function(&[], &[Value::Int(10)], 0);
+    let array = heap.alloc_list_elements(&[Value::Int(5), Value::Int(10)]);
+    let stack = heap.alloc_stack(function).to_handle();
 
-    function.set_constant(0, Value::int(5));
-    array.set_element(0, Value::int(10));
+    function.set_constant(0, Value::Int(5));
+    array.set(0, Value::Int(10));
 
     let function = function.to_handle();
 

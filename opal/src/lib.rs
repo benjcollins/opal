@@ -3,7 +3,6 @@
 pub mod ast;
 pub mod bytecode;
 pub mod heap;
-pub mod heap2;
 pub mod infer;
 pub mod instr;
 pub mod intern;

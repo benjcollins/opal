@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::RwLock};
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap2::{Function, Handle, Heap, StackGuard},
+    heap::{Heap, function::Function, handle::Handle, stack::StackGuard},
     infer::infer_fun,
     lower::lower_fun,
     ty::{BorrowedType, FunSig, Type},
@@ -94,7 +94,7 @@ impl<'h> Runtime<'h> {
                 let fun = self.fun_handles.get(&target_fun_name).unwrap();
                 let value = match fun {
                     Fun::Host(fun) => Value::HostFun(*fun),
-                    Fun::VM(fun) => Value::Fun(fun.to_object(&*heap)),
+                    Fun::VM(fun) => Value::VMFun(fun.to_object(&*heap)),
                 };
                 fun_to_patch.to_object(&*heap).set_constant(index as usize, value);
             }
@@ -107,20 +107,30 @@ impl<'h> Runtime<'h> {
             panic!()
         };
 
-        let heap = self.heap.read().unwrap();
-
-        let fun_object = fun_handle.to_object(&*heap);
-
-        let stack = heap.alloc_stack();
+        let stack = {
+            let heap = self.heap.read().unwrap();
+            let fun_object = fun_handle.to_object(&*heap);
+            heap.alloc_stack(fun_object).to_handle()
+        };
 
         let mut cf = ControlFlow::Continue;
         while cf.is_continue() {
+            let mut heap = self.heap.write().unwrap();
             let mut vm = VM {
-                stack: stack.lock(),
+                stack: stack.to_object(&*heap).lock(),
                 heap: &*heap,
             };
 
-            cf = vm.execute_next_instr()?;
+            for _ in 0..10 {
+                cf = vm.execute_next_instr()?;
+                if cf.is_break() {
+                    break;
+                }
+            }
+
+            drop(vm);
+
+            heap.collect();
         }
 
         Ok(())

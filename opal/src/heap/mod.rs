@@ -1,217 +1,234 @@
-pub mod mutator;
-pub mod object;
-pub mod stack;
-
 use std::{
-    alloc::{Layout, alloc, dealloc},
     collections::VecDeque,
     ptr,
     sync::{
-        Mutex, RwLock,
-        atomic::{AtomicBool, AtomicPtr, AtomicU8, Ordering},
+        Mutex, Once,
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
     },
 };
 
 use crate::{
     heap::{
-        mutator::Mutator,
-        object::{ArrayHeader, ObjectHeader, Tag},
+        function::Function,
+        list::List,
+        object::{Object, ObjectHeader, ObjectTag},
         stack::{Stack, StackInner},
     },
-    value::ValueTag,
+    instr::Instr,
+    value::{Value, ValueTag},
 };
 
-struct Objects {
-    head: AtomicPtr<ObjectHeader>,
-}
+pub mod function;
+pub mod handle;
+pub mod list;
+pub mod object;
+pub mod stack;
+
+pub const HEAP_ALIGN: usize = size_of::<usize>();
 
 pub struct Heap {
-    objects: RwLock<Objects>,
-    stacks_head: Mutex<*mut StackInner>,
+    pub objects_head: AtomicPtr<ObjectHeader>,
 }
-
-unsafe impl Sync for Heap {}
-unsafe impl Send for Heap {}
-
-pub const HEAP_ALIGN: usize = size_of::<*mut ()>();
-static HEAP_EXISTS: AtomicBool = AtomicBool::new(false);
 
 impl Heap {
-    pub fn new() -> Option<Heap> {
-        HEAP_EXISTS
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .ok()
-            .map(|_| Heap {
-                objects: RwLock::new(Objects {
-                    head: AtomicPtr::new(ptr::null_mut()),
-                }),
-                stacks_head: Mutex::new(ptr::null_mut()),
-            })
+    pub fn init() -> Option<Heap> {
+        static ONCE: Once = Once::new();
+        let mut first = false;
+        ONCE.call_once(|| {
+            first = true;
+        });
+        first.then(|| Heap {
+            objects_head: AtomicPtr::null(),
+        })
     }
-    pub fn new_mutator(&self) -> Mutator<'_> {
-        Mutator {
-            heap_guard: self.objects.read().unwrap(),
-        }
-    }
-    pub fn with_mutator<'h, T>(&'h self, mut f: impl FnMut(&Mutator<'h>) -> T) -> T {
-        let mutator = self.new_mutator();
-        f(&mutator)
-    }
-    pub fn new_stack<'s>(&self) -> Stack<'_, 's> {
+    fn alloc<T>(&self, tag: ObjectTag, body: T) -> &Object<T> {
         unsafe {
-            let mut stacks_head = self.stacks_head.lock().unwrap();
-            let inner = alloc(Layout::new::<StackInner>()).cast::<StackInner>();
-            (*inner).next = *stacks_head;
-            if !(*stacks_head).is_null() {
-                (**stacks_head).prev = inner;
-            }
-            (*inner).prev = ptr::null_mut();
-            (*inner).heap = ptr::from_ref(self);
-            (&raw mut (*inner).value_data).write(Vec::from_iter((0..1024).map(|_| AtomicPtr::new(ptr::null_mut()))));
-            (&raw mut (*inner).value_tag).write(Vec::from_iter((0..1024).map(|_| AtomicU8::new(ValueTag::Unit as u8))));
-            *stacks_head = inner;
-            Stack::new(inner)
-        }
-    }
-    pub fn object_count(&self) -> usize {
-        unsafe {
-            let objects = self.objects.read().unwrap();
-            let mut cur_object = objects.head.load(Ordering::Relaxed);
-            let mut count = 0;
-            while !cur_object.is_null() {
-                count += 1;
-                cur_object = (*cur_object).next.load(Ordering::Relaxed);
-            }
-            count
-        }
-    }
-    pub fn collect_garabge(&self) {
-        unsafe {
-            let mut objects = self.objects.write().unwrap();
-            let stacks_head = self.stacks_head.lock().unwrap();
+            let header = ObjectHeader {
+                next: AtomicPtr::null(),
+                handle_count: AtomicU32::new(0),
+                tag,
+                marked: AtomicBool::new(false),
+            };
+            let object_ptr = Box::into_raw(Box::new(Object { header, body }));
+            let header_ptr = object_ptr.cast::<ObjectHeader>();
 
-            unmark_all_objects(&mut objects);
-
-            let mut work_list = VecDeque::new();
-            add_roots_to_work_list(*stacks_head, &mut work_list);
-            trace_objects(&mut work_list);
-            sweep_unreachable_objects(&mut objects);
-        }
-    }
-}
-
-unsafe fn unmark_all_objects(objects: &mut Objects) {
-    unsafe {
-        let mut cur_object = *objects.head.get_mut();
-        while !cur_object.is_null() {
-            (*cur_object).marked = false;
-            cur_object = (*cur_object).next.load(Ordering::Relaxed);
-        }
-    }
-}
-
-unsafe fn add_roots_to_work_list(stacks_head: *mut StackInner, work_list: &mut VecDeque<*mut ObjectHeader>) {
-    unsafe {
-        let mut cur_stack = stacks_head;
-        while !cur_stack.is_null() {
-            let values = (*cur_stack).value_data.iter().zip((*cur_stack).value_tag.iter());
-
-            for (value, tag) in values {
-                if ValueTag::from_repr(tag.load(Ordering::Relaxed)).unwrap().is_array() {
-                    let value = value.load(Ordering::Relaxed);
-                    work_list.push_back(value.cast::<ObjectHeader>());
-                }
-            }
-            cur_stack = (*cur_stack).next;
-        }
-    }
-}
-
-unsafe fn trace_objects(work_list: &mut VecDeque<*mut ObjectHeader>) {
-    unsafe {
-        while let Some(object_header) = work_list.pop_front() {
-            if (*object_header).marked {
-                continue;
-            }
-            (*object_header).marked = true;
-            match (*object_header).tag {
-                Tag::Array => {
-                    let array_header = object_header.add(1).cast::<ArrayHeader>();
-                    let value_tag = ValueTag::from_repr((*array_header).tag.load(Ordering::Relaxed)).unwrap();
-                    if value_tag.is_array() {
-                        let elements = array_header.add(1).cast::<*mut ()>();
-                        for i in 0..(*array_header).len {
-                            work_list.push_back(*elements.add(i).cast());
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-unsafe fn sweep_unreachable_objects(objects: &mut Objects) {
-    unsafe {
-        let mut prev_object: *mut ObjectHeader = ptr::null_mut();
-        let mut cur_object = *objects.head.get_mut();
-        while !cur_object.is_null() {
-            let next_object = (*cur_object).next.load(Ordering::Relaxed);
-            if (*cur_object).marked {
-                prev_object = cur_object;
-            } else {
-                if !prev_object.is_null() {
-                    (*prev_object)
-                        .next
-                        .store((*cur_object).next.load(Ordering::Relaxed), Ordering::Relaxed);
-                } else {
-                    *objects.head.get_mut() = (*cur_object).next.load(Ordering::Relaxed);
-                }
-                let size = match (*cur_object).tag {
-                    Tag::Array => {
-                        let header = cur_object.add(1).cast::<ArrayHeader>();
-                        size_of::<ArrayHeader>() + size_of::<*mut ()>() * (*header).len
-                    }
-                };
-                dealloc(
-                    cur_object.cast(),
-                    Layout::from_size_align_unchecked(size_of::<ObjectHeader>() + size, HEAP_ALIGN),
-                );
-            }
-            cur_object = next_object;
-        }
-    }
-}
-
-impl Objects {
-    unsafe fn alloc_raw(&self, size: usize, tag: Tag) -> *mut ObjectHeader {
-        unsafe {
-            let size = size_of::<ObjectHeader>() + size;
-            let layout = Layout::from_size_align_unchecked(size, HEAP_ALIGN);
-            let ptr = alloc(layout).cast::<ObjectHeader>();
-            (*ptr).tag = tag;
-            (*ptr).marked = false;
-            let mut head = self.head.load(Ordering::Relaxed);
-            (*ptr).next.store(head, Ordering::Relaxed);
+            let mut objects_head = self.objects_head.load(Ordering::Relaxed);
             loop {
                 match self
-                    .head
-                    .compare_exchange(head, ptr, Ordering::Release, Ordering::Relaxed)
+                    .objects_head
+                    .compare_exchange(objects_head, header_ptr, Ordering::Release, Ordering::Relaxed)
                 {
                     Ok(_) => break,
-                    Err(new_head) => {
-                        head = new_head;
-                        (*ptr).next.store(head, Ordering::Relaxed);
-                    }
+                    Err(new_head) => objects_head = new_head,
                 }
             }
-            ptr
+            (*header_ptr).next.store(objects_head, Ordering::Relaxed);
+            object_ptr.as_ref_unchecked()
+        }
+    }
+    pub fn alloc_function(&self, bytecode: &[Instr], constants: &[Value], frame_size: u8) -> &Object<Function> {
+        let (constants_tag, constants_data): (Vec<_>, Vec<_>) = constants
+            .iter()
+            .map(|value| {
+                let (tag, data) = value.to_raw_parts();
+                (tag, AtomicPtr::new(data))
+            })
+            .unzip();
+        self.alloc(
+            ObjectTag::Function,
+            Function {
+                bytecode: bytecode.into(),
+                constants_tags: constants_tag.into(),
+                constants_data: constants_data.into(),
+                frame_size,
+            },
+        )
+    }
+    pub fn alloc_list_elements(&self, elements: &[Value]) -> &Object<List> {
+        let (value_tag, elements) = if elements.is_empty() {
+            (ValueTag::Void, vec![])
+        } else {
+            let (first_element_tag, _) = elements[0].to_raw_parts();
+            let mut data = vec![];
+            for element in elements {
+                let (element_tag, element_data) = element.to_raw_parts();
+                if element_tag != first_element_tag {
+                    panic!("elements not all the same type")
+                }
+                data.push(AtomicPtr::new(element_data));
+            }
+            (first_element_tag, data)
+        };
+        self.alloc(ObjectTag::List, List { value_tag, elements })
+    }
+    pub fn alloc_list_default_size(&self, default: Value, size: usize) -> &Object<List> {
+        let (tag, data) = default.to_raw_parts();
+        self.alloc(
+            ObjectTag::List,
+            List {
+                value_tag: tag,
+                elements: (0..size).map(|_| AtomicPtr::new(data)).collect(),
+            },
+        )
+    }
+    pub fn alloc_stack(&self, function: &Object<Function>) -> &Object<Stack> {
+        let (tag, data) = Value::Unit.to_raw_parts();
+        self.alloc(
+            ObjectTag::List,
+            Stack(Mutex::new(StackInner {
+                call_stack: vec![],
+                value_stack_tag: vec![tag; 1024],
+                value_stack_data: vec![data; 1024],
+                function: ptr::from_ref(function).cast_mut(),
+                base_ptr: 0,
+                instr_ptr: 0,
+            })),
+        )
+    }
+    pub fn collect(&mut self) {
+        unsafe {
+            let mut work_list = VecDeque::new();
+            unmark_objects_without_handles(*self.objects_head.get_mut(), &mut work_list);
+            trace_live_objects(&mut work_list);
+            dealloc_unmarked_objects(self.objects_head.get_mut());
+        }
+    }
+}
+
+unsafe fn unmark_objects_without_handles(mut current: *mut ObjectHeader, work_list: &mut VecDeque<*mut ObjectHeader>) {
+    unsafe {
+        while !current.is_null() {
+            if *(*current).handle_count.get_mut() > 0 {
+                work_list.push_back(current);
+                *(*current).marked.get_mut() = true;
+            } else {
+                *(*current).marked.get_mut() = false;
+            }
+            current = *(*current).next.get_mut();
+        }
+    }
+}
+
+unsafe fn trace_value<'h>(value: Value<'h>, work_list: &mut VecDeque<*mut ObjectHeader>) {
+    unsafe {
+        let header = ptr::from_ref(match value {
+            Value::List(object) => &object.header,
+            Value::VMFun(object) => &object.header,
+            _ => return,
+        })
+        .cast_mut();
+        *(*header).marked.get_mut() = true;
+        work_list.push_back(header);
+    }
+}
+
+unsafe fn trace_live_objects(work_list: &mut VecDeque<*mut ObjectHeader>) {
+    unsafe {
+        while let Some(object) = work_list.pop_front() {
+            match (*object).tag {
+                ObjectTag::Function => {
+                    let function = object.cast::<Object<Function>>().as_ref_unchecked();
+                    for constant in function.constants() {
+                        trace_value(constant, work_list);
+                    }
+                }
+                ObjectTag::List => {
+                    let list = object.cast::<Object<List>>().as_ref_unchecked();
+                    println!("{:?}", list);
+                    for element in list.iter() {
+                        trace_value(element, work_list);
+                    }
+                }
+                ObjectTag::Stack => {
+                    let stack = object.cast::<Object<Stack>>().as_ref_unchecked();
+                    println!("{:?}", stack);
+                    let mut stack = stack.lock();
+                    for value in stack.values() {
+                        trace_value(value, work_list);
+                    }
+                    for frame in &stack.call_stack {
+                        let header = &raw mut (*frame.function).header;
+                        *(*header).marked.get_mut() = true;
+                        work_list.push_back(header);
+                    }
+                    let header = &raw mut (*stack.function).header;
+                    *(*header).marked.get_mut() = true;
+                    work_list.push_back(header);
+                }
+            }
+        }
+    }
+}
+
+unsafe fn dealloc_unmarked_objects(head: &mut *mut ObjectHeader) {
+    unsafe {
+        let mut current = *head;
+        let mut prev: *mut ObjectHeader = ptr::null_mut();
+
+        while !current.is_null() {
+            let next = *(*current).next.get_mut();
+            if !*(*current).marked.get_mut() {
+                if !prev.is_null() {
+                    *(*prev).next.get_mut() = next;
+                } else {
+                    *head = next;
+                }
+                println!("freed some memory: {:?}", (*current).tag);
+                match (*current).tag {
+                    ObjectTag::Function => drop(Box::from_raw(current.cast::<Object<Function>>())),
+                    ObjectTag::Stack => drop(Box::from_raw(current.cast::<Object<Stack>>())),
+                    ObjectTag::List => drop(Box::from_raw(current.cast::<Object<List>>())),
+                }
+            } else {
+                prev = current;
+            }
+            current = next;
         }
     }
 }
 
 impl Drop for Heap {
     fn drop(&mut self) {
-        self.collect_garabge();
-        HEAP_EXISTS.store(false, Ordering::Release);
+        self.collect();
     }
 }

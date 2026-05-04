@@ -1,6 +1,6 @@
 module primes;
 
-fun generate_sieve(size: Int) -> Array[Bool] {
+fun generate_sieve(size: Int) -> List[Bool] {
     let sieve = [false; size];
     let i = 2;
     while (i < len(sieve)) {
@@ -14,7 +14,7 @@ fun generate_sieve(size: Int) -> Array[Bool] {
     return sieve;
 }
 
-fun count_primes(sieve: Array[Bool]) -> Int {
+fun count_primes(sieve: List[Bool]) -> Int {
     let i = 1;
     let prime_count = 0;
     while (i < len(sieve)) {
@@ -26,7 +26,7 @@ fun count_primes(sieve: Array[Bool]) -> Int {
     return prime_count;
 }
 
-fun collect_primes(sieve: Array[Bool]) -> Array[Int] {
+fun collect_primes(sieve: List[Bool]) -> List[Int] {
     let prime_count = count_primes(sieve);
     let primes = [0; prime_count];
     let i = 1;
@@ -41,7 +41,7 @@ fun collect_primes(sieve: Array[Bool]) -> Array[Int] {
     return primes;
 }
 
-fun primes(n: Int) -> Array[Int] {
+fun primes(n: Int) -> List[Int] {
     let sieve = generate_sieve(n);
     return collect_primes(sieve);
 }

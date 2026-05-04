@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ptr, sync::atomic::Ordering};
 
-use crate::heap2::{Heap, object::Object};
+use crate::heap::{Heap, object::Object};
 
 #[derive(Debug)]
 pub struct Handle<T> {

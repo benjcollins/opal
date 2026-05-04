@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::Hash};
 
-use crate::instr::{Instr, Op, Operand, Reg};
+use crate::instr::{Instr, Opcode, Operand, StackOperand};
 
 pub struct BytecodeBuffer<L> {
     buffer: Vec<Instr>,
@@ -59,8 +59,8 @@ impl<L: Hash + Eq> BytecodeBuffer<L> {
 
 macro_rules! define_arith_instr {
     ($fn_name:ident, $op:ident) => {
-        pub fn $fn_name(mut self, dst: Reg, src1: Operand, src2: Operand) {
-            self.instr.set_op(Op::$op);
+        pub fn $fn_name(mut self, dst: StackOperand, src1: Operand, src2: Operand) {
+            self.instr.set_opcode(Opcode::$op);
             self.instr.set_dst(dst);
             self.instr.set_src1(src1);
             self.instr.set_src2(src2);
@@ -74,7 +74,7 @@ macro_rules! define_branch_instr {
             self.bytecode_buffer
                 .branches
                 .push((self.bytecode_buffer.buffer.len(), label));
-            self.instr.set_op(Op::$op);
+            self.instr.set_opcode(Opcode::$op);
             self.instr.set_src1(src1);
             self.instr.set_src2(src2);
         }
@@ -87,7 +87,7 @@ macro_rules! define_branch_instr_rev {
             self.bytecode_buffer
                 .branches
                 .push((self.bytecode_buffer.buffer.len(), label));
-            self.instr.set_op(Op::$op);
+            self.instr.set_opcode(Opcode::$op);
             self.instr.set_src1(src2);
             self.instr.set_src2(src1);
         }
@@ -96,8 +96,8 @@ macro_rules! define_branch_instr_rev {
 
 macro_rules! define_set_instr {
     ($fn_name:ident, $op:ident) => {
-        pub fn $fn_name(mut self, dst: Reg, src1: Operand, src2: Operand) {
-            self.instr.set_op(Op::$op);
+        pub fn $fn_name(mut self, dst: StackOperand, src1: Operand, src2: Operand) {
+            self.instr.set_opcode(Opcode::$op);
             self.instr.set_dst(dst);
             self.instr.set_src1(src1);
             self.instr.set_src2(src2);
@@ -107,8 +107,8 @@ macro_rules! define_set_instr {
 
 macro_rules! define_set_instr_rev {
     ($fn_name:ident, $op:ident) => {
-        pub fn $fn_name(mut self, dst: Reg, src1: Operand, src2: Operand) {
-            self.instr.set_op(Op::$op);
+        pub fn $fn_name(mut self, dst: StackOperand, src1: Operand, src2: Operand) {
+            self.instr.set_opcode(Opcode::$op);
             self.instr.set_dst(dst);
             self.instr.set_src1(src2);
             self.instr.set_src2(src1);
@@ -121,42 +121,50 @@ impl<'b, L> InstrBuilder<'b, L> {
         self.bytecode_buffer
             .jumps
             .push((self.bytecode_buffer.buffer.len(), label));
-        self.instr.set_op(Op::Jump);
+        self.instr.set_opcode(Opcode::Jump);
     }
 
-    pub fn mov(mut self, dst: Reg, src: Operand) {
-        self.instr.set_op(Op::Mov);
+    pub fn mov(mut self, dst: StackOperand, src: Operand) {
+        self.instr.set_opcode(Opcode::Mov);
         self.instr.set_dst(dst);
         self.instr.set_src1(src);
     }
 
-    pub fn call(mut self, dst: Reg, fun: Operand, args_start: u8) {
-        self.instr.set_op(Op::Call);
+    pub fn call(mut self, dst: StackOperand, fun: Operand, args_start: u8) {
+        self.instr.set_opcode(Opcode::Call);
         self.instr.set_dst(dst);
         self.instr.set_src1(fun);
         self.instr.set_args_start(args_start);
     }
 
     pub fn ret(mut self, src: Operand) {
-        self.instr.set_op(Op::Ret);
+        self.instr.set_opcode(Opcode::Ret);
         self.instr.set_src1(src);
     }
 
-    pub fn array_new(mut self, dst: Reg, length: Operand) {
-        self.instr.set_op(Op::ArrayInit);
+    pub fn list_elements(mut self, dst: StackOperand, elements_start: u8, elements_count: u8) {
+        self.instr.set_opcode(Opcode::ListElements);
         self.instr.set_dst(dst);
-        self.instr.set_src1(length);
+        self.instr.set_args_count(elements_count);
+        self.instr.set_args_start(elements_start);
     }
 
-    pub fn array_get(mut self, dst: Reg, array: Operand, index: Operand) {
-        self.instr.set_op(Op::ListGet);
+    pub fn list_default_length(mut self, dst: StackOperand, default_: Operand, size: Operand) {
+        self.instr.set_opcode(Opcode::ListDefaultLength);
+        self.instr.set_dst(dst);
+        self.instr.set_src1(default_);
+        self.instr.set_src2(size);
+    }
+
+    pub fn list_get(mut self, dst: StackOperand, array: Operand, index: Operand) {
+        self.instr.set_opcode(Opcode::ListGet);
         self.instr.set_dst(dst);
         self.instr.set_src1(array);
         self.instr.set_src2(index);
     }
 
-    pub fn array_set(mut self, array: Reg, value: Operand, index: Operand) {
-        self.instr.set_op(Op::ArraySet);
+    pub fn list_set(mut self, array: StackOperand, value: Operand, index: Operand) {
+        self.instr.set_opcode(Opcode::ListSet);
         self.instr.set_dst(array);
         self.instr.set_src1(value);
         self.instr.set_src2(index);

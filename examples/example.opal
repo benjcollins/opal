@@ -1,8 +1,17 @@
 module main;
 
 fun main() {
-    assert(5 < 2);
-    print(5);
+    let list = [1, 2, 3];
 
-    var p: []Byte = [1, 2, 3];
+    double(list);
+
+    assert(list == [2, 4, 6]);
+}
+
+fun double(list: List[Int]) {
+    let i = 0;
+    while (i < len(list)) {
+        list[i] *= 2;
+        i += 1;
+    }
 }

@@ -1,19 +1,11 @@
 use libtest_mimic::{Arguments, Failed, Trial};
-use opal::{
-    ast::ModuleItem,
-    heap::Heap,
-    parser::parse_module,
-    runtime::{Fun, Runtime},
-    value::Array,
-    vm::RuntimeError,
-};
+use opal::{ast::ModuleItem, heap::Heap, parser::parse_module, runtime::Runtime, value::List, vm::RuntimeError};
 use std::{
     convert::Infallible,
     error::Error,
-    fs::{self, File},
-    io::Write,
+    fs,
     path::Path,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 #[opal_proc::fun]
@@ -28,8 +20,8 @@ fn print<T>(value: T) -> Result<(), RuntimeError> {
 }
 
 #[opal_proc::fun]
-fn len<T>(array: Array<T>) -> Result<i64, RuntimeError> {
-    Ok(array.len())
+fn len<T>(list: List<T>) -> Result<i64, RuntimeError> {
+    Ok(list.len() as i64)
 }
 
 #[opal_proc::fun]
@@ -37,12 +29,12 @@ fn fail() -> Result<Infallible, RuntimeError> {
     Err(RuntimeError)
 }
 
-fn run_test(name: &str, source: &str, path: &Path, heap: &Heap) -> Result<(), Failed> {
+fn run_test(name: &str, source: &str, path: &Path, heap: &RwLock<Heap>) -> Result<(), Failed> {
     let (module, errors) = parse_module(source, Some(path));
     assert!(errors.is_empty());
     let module = module.unwrap();
 
-    let runtime = Runtime::new(&heap);
+    let mut runtime = Runtime::new(heap);
 
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print);
@@ -53,25 +45,25 @@ fn run_test(name: &str, source: &str, path: &Path, heap: &Heap) -> Result<(), Fa
         .compile_module(&module)
         .map_err(|_| "could not compile module")?;
 
-    fs::create_dir_all("tests/output")?;
-    let path = format!("tests/output/{}.asm", module.name.0);
-    if !fs::exists(&path)? {
-        let mut file = File::create(&path)?;
-        let funs = runtime.funs.borrow();
-        let mut fun_names: Vec<_> = funs.keys().collect();
-        fun_names.sort_by_key(|name| name.0.as_str());
-        for name in fun_names {
-            let fun = funs.get(name).unwrap();
-            if let Fun::Compiled(fun) = fun {
-                writeln!(file, "{}:", name.0)?;
-                for i in 0..fun.bytecode.len() {
-                    writeln!(file, "  {}", fun.bytecode[i])?;
-                }
-                writeln!(file)?;
-            }
-        }
-        file.flush()?;
-    }
+    // fs::create_dir_all("tests/output")?;
+    // let path = format!("tests/output/{}.asm", module.name.0);
+    // if !fs::exists(&path)? {
+    //     let mut file = File::create(&path)?;
+    //     let funs = runtime.funs.borrow();
+    //     let mut fun_names: Vec<_> = funs.keys().collect();
+    //     fun_names.sort_by_key(|name| name.0.as_str());
+    //     for name in fun_names {
+    //         let fun = funs.get(name).unwrap();
+    //         if let Fun::Compiled(fun) = fun {
+    //             writeln!(file, "{}:", name.0)?;
+    //             for i in 0..fun.bytecode.len() {
+    //                 writeln!(file, "  {}", fun.bytecode[i])?;
+    //             }
+    //             writeln!(file)?;
+    //         }
+    //     }
+    //     file.flush()?;
+    // }
 
     runtime.execute_fun(name).map_err(|_| "test execution failed")?;
     Ok(())
@@ -91,7 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let heap = Arc::new(Heap::new().unwrap());
+    let heap = Arc::new(RwLock::new(Heap::init().unwrap()));
 
     for item in fs::read_dir("tests/src")? {
         let item = item?;
