@@ -41,7 +41,7 @@ pub enum Op {
 
     ArrayInit,
     ArraySet,
-    ArrayGet,
+    ListGet,
 
     Jump,
 
@@ -63,20 +63,20 @@ impl Instr {
         Instr(0)
     }
 
-    pub fn src1(self) -> Val {
+    pub fn src1(self) -> Operand {
         let idx = (self.0 >> 8) as u8;
         if self.0 >> 25 & 1 == 0 {
-            Val::Reg(Reg(idx))
+            Operand::Stack(Reg(idx))
         } else {
-            Val::Cst(Cst(idx))
+            Operand::Const(Cst(idx))
         }
     }
-    pub fn src2(self) -> Val {
+    pub fn src2(self) -> Operand {
         let idx = self.0 as u8;
         if self.0 >> 24 & 1 == 0 {
-            Val::Reg(Reg(idx))
+            Operand::Stack(Reg(idx))
         } else {
-            Val::Cst(Cst(idx))
+            Operand::Const(Cst(idx))
         }
     }
     pub fn dst(self) -> Reg {
@@ -101,12 +101,12 @@ impl Instr {
     pub fn set_dst(&mut self, dst: Reg) {
         self.0 |= (dst.0 as u32) << 16;
     }
-    pub fn set_src1(&mut self, src1: Val) {
-        self.0 |= (src1.is_cst() as u32) << 25;
+    pub fn set_src1(&mut self, src1: Operand) {
+        self.0 |= (src1.is_const() as u32) << 25;
         self.0 |= (src1.idx() as u32) << 8;
     }
-    pub fn set_src2(&mut self, src2: Val) {
-        self.0 |= (src2.is_cst() as u32) << 24;
+    pub fn set_src2(&mut self, src2: Operand) {
+        self.0 |= (src2.is_const() as u32) << 24;
         self.0 |= src2.idx() as u32;
     }
     pub fn set_branch_offset(&mut self, offset: i8) {
@@ -127,25 +127,25 @@ pub struct Reg(pub u8);
 pub struct Cst(pub u8);
 
 #[derive(Debug, EnumIs, Clone, Copy)]
-pub enum Val {
-    Reg(Reg),
-    Cst(Cst),
+pub enum Operand {
+    Stack(Reg),
+    Const(Cst),
 }
 
-impl Val {
+impl Operand {
     pub fn idx(self) -> u8 {
         match self {
-            Val::Reg(reg) => reg.0,
-            Val::Cst(cst) => cst.0,
+            Operand::Stack(reg) => reg.0,
+            Operand::Const(cst) => cst.0,
         }
     }
 }
 
-impl fmt::Display for Val {
+impl fmt::Display for Operand {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Val::Reg(reg) => write!(f, "r({})", reg.0),
-            Val::Cst(cst) => write!(f, "c({})", cst.0),
+            Operand::Stack(reg) => write!(f, "r({})", reg.0),
+            Operand::Const(cst) => write!(f, "c({})", cst.0),
         }
     }
 }
@@ -187,7 +187,7 @@ impl fmt::Display for Instr {
             Op::Call => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.args_start()),
             Op::Ret => write!(f, " {}", self.src1()),
             Op::ArrayInit => write!(f, " {}, {}", self.dst(), self.src1()),
-            Op::ArraySet | Op::ArrayGet => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
+            Op::ArraySet | Op::ListGet => write!(f, " {}, {}, {}", self.dst(), self.src1(), self.src2()),
         }?;
         write!(f, ";")
     }

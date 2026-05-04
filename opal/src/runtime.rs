@@ -1,33 +1,27 @@
-use std::{cell::RefCell, collections::HashMap};
-
-use elsa::FrozenVec;
+use std::{collections::HashMap, sync::RwLock};
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::{Heap, mutator::Mutator, stack::Stack},
+    heap2::{Function, Handle, Heap, StackGuard},
     infer::infer_fun,
-    lower::{CompiledFun, lower_fun},
+    lower::lower_fun,
     ty::{BorrowedType, FunSig, Type},
     value::Value,
     vm::{ControlFlow, RuntimeError, VM},
 };
 
-pub type NativeFun = for<'m, 's, 'h> fn(
-    value_stack: &Stack<'h, 's>,
-    mutator: &'m Mutator<'h>,
-    value_stack_base: usize,
-) -> Result<Value<'m, 's>, RuntimeError>;
+pub type HostFun = for<'h> fn(value_stack: &StackGuard<'h>) -> Result<Value<'h>, RuntimeError>;
 
 #[derive(Debug, Clone, Copy)]
-pub struct TypedNativeFun {
+pub struct TypedHostFun {
     pub name: &'static str,
     pub generics: &'static [&'static str],
     pub params: &'static [BorrowedType<'static>],
     pub returns: BorrowedType<'static>,
-    pub fun: NativeFun,
+    pub fun: HostFun,
 }
 
-impl TypedNativeFun {
+impl TypedHostFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
             generics: self.generics.iter().map(|name| Ident::new(name)).collect(),
@@ -37,35 +31,31 @@ impl TypedNativeFun {
     }
 }
 
-pub struct Runtime<'s, 'h> {
-    compiled_funs: FrozenVec<Box<CompiledFun<'s>>>,
-    heap: &'h Heap,
-    fun_sigs: RefCell<HashMap<Ident, FunSig>>,
-    pub funs: RefCell<HashMap<Ident, Fun<'s>>>,
+pub struct Runtime<'h> {
+    heap: &'h RwLock<Heap>,
+    fun_sigs: HashMap<Ident, FunSig>,
+    fun_handles: HashMap<Ident, Fun>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Fun<'s> {
-    Native(NativeFun),
-    Compiled(&'s CompiledFun<'s>),
+#[derive(Debug, Clone)]
+pub enum Fun {
+    Host(HostFun),
+    VM(Handle<Function>),
 }
 
-impl<'s, 'h> Runtime<'s, 'h> {
-    pub fn new(heap: &'h Heap) -> Runtime<'s, 'h> {
+impl<'h> Runtime<'h> {
+    pub fn new(heap: &'h RwLock<Heap>) -> Runtime<'h> {
         Runtime {
             heap,
-            fun_sigs: RefCell::new(HashMap::new()),
-            funs: RefCell::new(HashMap::new()),
-            compiled_funs: FrozenVec::new(),
+            fun_sigs: HashMap::new(),
+            fun_handles: HashMap::new(),
         }
     }
-    pub fn register_native_fun(&self, fun: TypedNativeFun) {
-        self.fun_sigs.borrow_mut().insert(Ident::new(fun.name), fun.sig());
-        self.funs
-            .borrow_mut()
-            .insert(Ident::new(fun.name), Fun::Native(fun.fun));
+    pub fn register_native_fun(&mut self, fun: TypedHostFun) {
+        self.fun_sigs.insert(Ident::new(fun.name), fun.sig());
+        self.fun_handles.insert(Ident::new(fun.name), Fun::Host(fun.fun));
     }
-    pub fn compile_module(&'s self, module: &Module) -> Result<(), ()> {
+    pub fn compile_module(&mut self, module: &Module) -> Result<(), ()> {
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
@@ -80,85 +70,57 @@ impl<'s, 'h> Runtime<'s, 'h> {
                         .map(|ty| ty.try_into().unwrap())
                         .unwrap_or(Type::Unit);
                     self.fun_sigs
-                        .borrow_mut()
                         .insert(fun.name.clone(), FunSig::new(vec![], params, returns));
                 }
             }
         }
 
         let mut funs_to_patch = vec![];
+        let heap = self.heap.read().unwrap();
 
         for item in &module.items {
             match item {
                 ModuleItem::Fun(fun) => {
-                    let typed_fun = infer_fun(fun, &self.fun_sigs.borrow()).unwrap();
-                    let (compiled_fun, fun_ptrs) = lower_fun(&typed_fun);
-
-                    let compiled_fun = self.compiled_funs.push_get(Box::new(compiled_fun));
-
-                    funs_to_patch.push((compiled_fun, fun_ptrs));
-                    self.funs
-                        .borrow_mut()
-                        .insert(fun.name.clone(), Fun::Compiled(compiled_fun));
+                    let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
+                    let (fun_handle, fun_ptrs) = lower_fun(&typed_fun, &*heap);
+                    self.fun_handles.insert(fun.name.clone(), Fun::VM(fun_handle.clone()));
+                    funs_to_patch.push((fun_handle, fun_ptrs));
                 }
             }
         }
 
         for (fun_to_patch, fun_ptrs) in funs_to_patch {
             for (target_fun_name, index) in fun_ptrs {
-                let funs = self.funs.borrow();
-                let fun = funs.get(&target_fun_name).unwrap();
-                let value = match *fun {
-                    Fun::Native(fun) => Value::host_fun(fun),
-                    Fun::Compiled(fun) => Value::fun(fun),
+                let fun = self.fun_handles.get(&target_fun_name).unwrap();
+                let value = match fun {
+                    Fun::Host(fun) => Value::HostFun(*fun),
+                    Fun::VM(fun) => Value::Fun(fun.to_object(&*heap)),
                 };
-                fun_to_patch.consts[index as usize].set(value.try_into().unwrap());
+                fun_to_patch.to_object(&*heap).set_constant(index as usize, value);
             }
         }
 
         Ok(())
     }
-    pub fn execute_fun(&'s self, name: &str) -> Result<(), RuntimeError> {
-        let fun = {
-            let funs = self.funs.borrow();
-            funs.get(&Ident::new(name)).copied()
+    pub fn execute_fun(&self, name: &str) -> Result<(), RuntimeError> {
+        let Fun::VM(fun_handle) = self.fun_handles.get(&Ident::new(name)).cloned().unwrap() else {
+            panic!()
         };
 
-        let Fun::Compiled(mut fun) = fun.unwrap() else { panic!() };
+        let heap = self.heap.read().unwrap();
 
-        let mut call_stack = vec![];
-        let mut value_stack = self.heap.new_stack();
-        let mut ip = 0;
-        let mut value_stack_frame = 0;
+        let fun_object = fun_handle.to_object(&*heap);
+
+        let stack = heap.alloc_stack();
 
         let mut cf = ControlFlow::Continue;
         while cf.is_continue() {
-            let mutator = self.heap.new_mutator();
-
             let mut vm = VM {
-                call_stack,
-                value_stack,
-                mutator: &mutator,
-                ip,
-                value_stack_frame,
-                fun,
+                stack: stack.lock(),
+                heap: &*heap,
             };
 
-            for _ in 0..1000 {
-                if cf.is_break() {
-                    break;
-                }
-                cf = vm.execute_next_instr()?;
-            }
-
-            call_stack = vm.call_stack;
-            value_stack = vm.value_stack;
-            ip = vm.ip;
-            value_stack_frame = vm.value_stack_frame;
-            fun = vm.fun;
-
-            mutator.finish();
-            self.heap.collect_garabge();
+            cf = vm.execute_next_instr()?;
         }
 
         Ok(())

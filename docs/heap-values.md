@@ -1,14 +1,8 @@
 
-heap values
 
-- next allocation usize bits
-- tag 2 bit
-- marked 1 bit
-- refcount 29 bits
-- payload 32 bits
-  - 32 bit len
-  - 1 bit gc, 31 bit len
-  - 32 bit one per field
+- function (bytecode, constant values, name, number of required registers) [DONE]
+- call_stack (instruction pointers, functions, value stack) (cannot be shared between threads!!!)
+- array (elements) [DONE]
 
-array
-bytes
+- record (elements)
+- host/native (drop implmentation)

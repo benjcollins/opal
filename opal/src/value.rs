@@ -1,14 +1,24 @@
-use std::{convert::Infallible, fmt, marker::PhantomData, mem, ptr};
+use std::{convert::Infallible, marker::PhantomData, mem, ptr};
 
 use strum::{EnumIs, FromRepr};
 
 use crate::{
-    heap::object::{self, Object},
-    lower::CompiledFun,
-    runtime::NativeFun,
+    heap2::{Function, List, Object},
+    runtime::HostFun,
     ty::{BorrowedType, NumericType},
     vm::RuntimeError,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub enum Value<'h> {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Unit,
+    HostFun(HostFun),
+    List(&'h Object<List>),
+    Fun(&'h Object<Function>),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIs, FromRepr)]
 #[repr(u8)]
@@ -17,277 +27,141 @@ pub enum ValueTag {
     Float,
     Bool,
     Unit,
-    Array,
+    List,
     HostFun,
     Fun,
+    Void,
 }
 
-#[derive(Debug, Clone, Copy, Eq)]
-pub struct Value<'m, 's> {
-    tag: ValueTag,
-    data: *mut (),
-    _phantom: PhantomData<(&'m Object<'m, object::Array<'s>>, &'s CompiledFun<'s>)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct StaticValue<'s> {
-    tag: ValueTag,
-    data: *mut (),
-    _phantom: PhantomData<&'s CompiledFun<'s>>,
-}
-
-pub struct Array<'m, 's, T> {
-    object: Object<'m, object::Array<'s>>,
+pub struct TypedList<'h, T> {
+    object: &'h Object<List>,
     phantom: PhantomData<T>,
 }
 
-pub trait ValueConv<'m, 's> {
+pub trait ValueConv<'h> {
     const TYPE: BorrowedType<'static>;
 
-    fn into_value(self) -> Value<'m, 's>;
-    fn from_value(value: Value<'m, 's>) -> Self;
+    fn into(self) -> Value<'h>;
+    fn from(value: Value<'h>) -> Self;
 }
 
-pub trait NativeFunResult<'m, 's> {
-    type Output: ValueConv<'m, 's>;
-    fn map(self) -> Result<Value<'m, 's>, RuntimeError>;
+pub trait NativeFunResult<'h> {
+    type Output: ValueConv<'h>;
+    fn map(self) -> Result<Value<'h>, RuntimeError>;
 }
 
-#[cfg(target_pointer_width = "64")]
-type Int = i64;
-
-#[cfg(target_pointer_width = "32")]
-type Int = i32;
-
-#[cfg(target_pointer_width = "64")]
-type UInt = u64;
-
-#[cfg(target_pointer_width = "32")]
-type UInt = u32;
-
-#[cfg(target_pointer_width = "64")]
-type Float = f64;
-
-#[cfg(target_pointer_width = "32")]
-type Float = f32;
-
-impl PartialEq for Value<'_, '_> {
-    fn eq(&self, other: &Self) -> bool {
-        if self.tag != other.tag {
-            return false;
+impl<'h> Value<'h> {
+    pub fn to_raw_parts(&self) -> (ValueTag, *mut ()) {
+        match *self {
+            Value::Int(value) => (ValueTag::Int, ptr::without_provenance_mut(value as usize)),
+            Value::Float(value) => (ValueTag::Float, ptr::without_provenance_mut(value.to_bits() as usize)),
+            Value::Bool(value) => (ValueTag::Bool, ptr::without_provenance_mut(if value { 1 } else { 0 })),
+            Value::Unit => (ValueTag::Unit, ptr::without_provenance_mut(0)),
+            Value::HostFun(value) => (ValueTag::HostFun, value as *mut ()),
+            Value::List(object) => (ValueTag::List, ptr::from_ref(object).cast::<()>().cast_mut()),
+            Value::Fun(object) => (ValueTag::Fun, ptr::from_ref(object).cast::<()>().cast_mut()),
         }
-        match self.tag {
-            ValueTag::Int | ValueTag::Float | ValueTag::Bool | ValueTag::Unit | ValueTag::Fun | ValueTag::HostFun => {
-                self.data == other.data
-            }
-            ValueTag::Array => {
-                let array1 = self.as_array();
-                let array2 = other.as_array();
-                if array1.len() != array2.len() {
-                    return false;
-                }
-                for i in 0..array1.len() {
-                    if array1.get(i) != array2.get(i) {
-                        return false;
-                    }
-                }
-                true
-            }
+    }
+    pub unsafe fn from_raw_parts(tag: ValueTag, data: *mut ()) -> Value<'h> {
+        match tag {
+            ValueTag::Int => Value::Int(data.addr() as i64),
+            ValueTag::Float => Value::Float(f64::from_bits(data.addr() as u64)),
+            ValueTag::Bool => Value::Bool(data.addr() == 1),
+            ValueTag::Unit => Value::Unit,
+            ValueTag::List => Value::List(unsafe { data.cast::<Object<List>>().as_ref_unchecked() }),
+            ValueTag::HostFun => Value::HostFun(unsafe { mem::transmute::<*mut (), HostFun>(data) }),
+            ValueTag::Fun => Value::Fun(unsafe { data.cast::<Object<Function>>().as_ref_unchecked() }),
+            ValueTag::Void => panic!(),
         }
     }
 }
 
-impl<'m, 's> TryFrom<Value<'m, 's>> for StaticValue<'s> {
-    type Error = ();
-
-    fn try_from(value: Value<'m, 's>) -> Result<Self, ()> {
-        if value.tag == ValueTag::Array {
-            return Err(());
-        }
-        Ok(StaticValue {
-            tag: value.tag,
-            data: value.data,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-impl<'m, 's> From<StaticValue<'s>> for Value<'m, 's> {
-    fn from(value: StaticValue<'s>) -> Self {
-        Value {
-            tag: value.tag,
-            data: value.data,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<'m, 's> Value<'m, 's> {
-    pub unsafe fn new(tag: ValueTag, data: *mut ()) -> Value<'m, 's> {
-        Value {
-            tag,
-            data,
-            _phantom: PhantomData,
-        }
-    }
-    pub fn data(&self) -> *mut () {
-        self.data
-    }
-    pub fn tag(&self) -> ValueTag {
-        self.tag
-    }
-    pub fn int(value: Int) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Int, ptr::without_provenance_mut(value as usize)) }
-    }
-    pub fn float(value: Float) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Float, ptr::without_provenance_mut(value.to_bits() as usize)) }
-    }
-    pub fn bool(value: bool) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Bool, ptr::without_provenance_mut(if value { 1 } else { 0 })) }
-    }
-    pub fn unit() -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Unit, ptr::without_provenance_mut(0)) }
-    }
-    pub fn array(array: Object<'m, object::Array<'s>>) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Array, array.as_ptr()) }
-    }
-    pub fn fun(fun: &CompiledFun) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::Fun, ptr::from_ref(fun).cast::<()>().cast_mut()) }
-    }
-    pub fn host_fun(fun: NativeFun) -> Value<'m, 's> {
-        unsafe { Value::new(ValueTag::HostFun, fun as *mut ()) }
-    }
-    pub fn as_int(self) -> Int {
-        assert!(self.tag.is_int());
-        self.data.addr() as Int
-    }
-    pub fn as_float(self) -> Float {
-        assert!(self.tag.is_float());
-        Float::from_bits(self.data.addr() as UInt)
-    }
-    pub fn as_bool(self) -> bool {
-        assert!(self.tag.is_bool());
-        self.data.addr() == 1
-    }
-    pub fn as_array(self) -> Object<'m, object::Array<'s>> {
-        assert!(self.tag.is_array());
-        unsafe { Object::from_ptr(self.data.cast()) }
-    }
-    pub fn as_host_fun(&self) -> NativeFun {
-        assert!(self.tag.is_host_fun());
-        assert!(!self.data.is_null());
-        unsafe { mem::transmute::<*mut (), NativeFun>(self.data) }
-    }
-    pub fn as_fun(&self) -> &'s CompiledFun<'s> {
-        assert!(self.tag.is_fun());
-        unsafe { self.data.cast::<CompiledFun<'s>>().as_ref().unwrap() }
-    }
-}
-
-impl<'m, 's, T: ValueConv<'m, 's>> NativeFunResult<'m, 's> for Result<T, RuntimeError> {
+impl<'h, T: ValueConv<'h>> NativeFunResult<'h> for Result<T, RuntimeError> {
     type Output = T;
-    fn map(self) -> Result<Value<'m, 's>, RuntimeError> {
-        self.map(|t| t.into_value())
+    fn map(self) -> Result<Value<'h>, RuntimeError> {
+        self.map(|t| t.into())
     }
 }
 
-impl<'m, 's> ValueConv<'m, 's> for i64 {
+impl<'h> ValueConv<'h> for i64 {
     const TYPE: BorrowedType<'static> = BorrowedType::Numeric(NumericType::Int);
-    fn into_value(self) -> Value<'m, 's> {
-        Value::int(self)
+    fn into(self) -> Value<'h> {
+        Value::Int(self)
     }
-    fn from_value(value: Value<'m, 's>) -> Self {
-        value.as_int()
+    fn from(value: Value<'h>) -> Self {
+        let Value::Int(value) = value else { panic!() };
+        value
     }
 }
 
-impl<'m, 's> ValueConv<'m, 's> for bool {
+impl<'h> ValueConv<'h> for bool {
     const TYPE: BorrowedType<'static> = BorrowedType::Bool;
-    fn into_value(self) -> Value<'m, 's> {
-        Value::bool(self)
+    fn into(self) -> Value<'h> {
+        Value::Bool(self)
     }
-    fn from_value(value: Value<'m, 's>) -> Self {
-        value.as_bool()
+    fn from(value: Value<'h>) -> Self {
+        let Value::Bool(value) = value else { panic!() };
+        value
     }
 }
 
-impl<'m, 's> ValueConv<'m, 's> for f64 {
+impl<'h> ValueConv<'h> for f64 {
     const TYPE: BorrowedType<'static> = BorrowedType::Numeric(NumericType::Float);
-    fn into_value(self) -> Value<'m, 's> {
-        Value::float(self)
+    fn into(self) -> Value<'h> {
+        Value::Float(self)
     }
-    fn from_value(value: Value<'m, 's>) -> Self {
-        value.as_float()
+    fn from(value: Value<'h>) -> Self {
+        let Value::Float(value) = value else { panic!() };
+        value
     }
 }
 
-impl<'m, 's> ValueConv<'m, 's> for () {
+impl<'h> ValueConv<'h> for () {
     const TYPE: BorrowedType<'static> = BorrowedType::Unit;
-    fn into_value(self) -> Value<'m, 's> {
-        Value::unit()
+    fn into(self) -> Value<'h> {
+        Value::Unit
     }
-    fn from_value(_: Value<'m, 's>) -> Self {}
+    fn from(value: Value<'h>) -> Self {
+        let Value::Unit = value else { panic!() };
+    }
 }
 
-impl<'m, 's> ValueConv<'m, 's> for Infallible {
+impl<'h> ValueConv<'h> for Infallible {
     const TYPE: BorrowedType<'static> = BorrowedType::Void;
-    fn into_value(self) -> Value<'m, 's> {
+    fn into(self) -> Value<'h> {
         match self {}
     }
-    fn from_value(_: Value<'m, 's>) -> Self {
+    fn from(_: Value<'h>) -> Self {
         unreachable!()
     }
 }
 
-impl<'m, 's, T: ValueConv<'m, 's>> ValueConv<'m, 's> for Array<'m, 's, T> {
+impl<'h, T: ValueConv<'h>> ValueConv<'h> for TypedList<'h, T> {
     const TYPE: BorrowedType<'static> = BorrowedType::Array(&T::TYPE);
-    fn into_value(self) -> Value<'m, 's> {
-        Value::array(self.object)
+    fn into(self) -> Value<'h> {
+        Value::List(self.object)
     }
-    fn from_value(value: Value<'m, 's>) -> Self {
-        Array {
-            object: value.as_array(),
+    fn from(value: Value<'h>) -> Self {
+        let Value::List(object) = value else { panic!() };
+        TypedList {
+            object,
             phantom: PhantomData,
         }
     }
 }
 
-impl<'m, 's, T: ValueConv<'m, 's>> Array<'m, 's, T> {
-    pub fn len(&self) -> i64 {
-        self.object.len() as i64
+impl<'h, T: ValueConv<'h>> TypedList<'h, T> {
+    pub fn len(&self) -> usize {
+        self.object.len()
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, index: i64) -> T {
-        let p = self.object.get(index as usize);
-        T::from_value(p)
+        let p = self.object.get_element(index as usize);
+        T::from(p)
     }
     pub fn set(&self, index: i64, value: T) {
-        self.object.set(index as usize, value.into_value());
-    }
-}
-
-impl<'m, 's> fmt::Display for Value<'m, 's> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.tag {
-            ValueTag::Int => write!(f, "{}", self.data.addr() as Int),
-            ValueTag::Float => write!(f, "{:.1}", self.data.addr() as Float),
-            ValueTag::Bool => write!(f, "{}", self.data.addr() == 1),
-            ValueTag::Unit => write!(f, "()"),
-            ValueTag::HostFun => write!(f, "host_fun"),
-            ValueTag::Fun => write!(f, "fun"),
-            ValueTag::Array => {
-                let array = self.as_array();
-                write!(f, "[")?;
-                for i in 0..array.len() {
-                    write!(f, "{}", array.get(i))?;
-                    if i != array.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, "]")
-            }
-        }
+        self.object.set_element(index as usize, value.into());
     }
 }
