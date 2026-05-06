@@ -10,7 +10,7 @@ pub struct Handle<T> {
 
 impl<T> Handle<T> {
     pub fn new(object: &Object<T>) -> Handle<T> {
-        (*object).header.handle_count.fetch_add(1, Ordering::Relaxed);
+        object.header.handle_count.fetch_add(1, Ordering::Relaxed);
         Handle {
             object: ptr::from_ref(object).cast_mut(),
             _phantom: PhantomData,

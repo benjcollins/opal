@@ -52,7 +52,7 @@ pub trait HostFunResult<'h> {
 }
 
 impl<'h> Value<'h> {
-    pub fn to_raw_parts(self) -> (ValueTag, *mut ()) {
+    pub(crate) fn to_raw_parts(self) -> (ValueTag, *mut ()) {
         match self {
             Value::Int(value) => (ValueTag::Int, ptr::without_provenance_mut(value as usize)),
             Value::Float(value) => (ValueTag::Float, ptr::without_provenance_mut(value.to_bits() as usize)),
@@ -65,7 +65,7 @@ impl<'h> Value<'h> {
             Value::UnpatchedFun => (ValueTag::Fun, ptr::null_mut()),
         }
     }
-    pub unsafe fn from_raw_parts(tag: ValueTag, data: *mut ()) -> Value<'h> {
+    pub(crate) unsafe fn from_raw_parts(tag: ValueTag, data: *mut ()) -> Value<'h> {
         match tag {
             ValueTag::Int => Value::Int(data.addr() as i64),
             ValueTag::Float => Value::Float(f64::from_bits(data.addr() as u64)),

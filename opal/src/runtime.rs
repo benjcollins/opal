@@ -82,7 +82,7 @@ impl<'h> Runtime<'h> {
             match item {
                 ModuleItem::Fun(fun) => {
                     let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
-                    let (fun_handle, fun_ptrs) = lower_fun(&typed_fun, &*heap);
+                    let (fun_handle, fun_ptrs) = lower_fun(&typed_fun, &heap);
                     self.fun_handles.insert(fun.name.clone(), Fun::VM(fun_handle.clone()));
                     funs_to_patch.push((fun_handle, fun_ptrs));
                 }
@@ -94,9 +94,9 @@ impl<'h> Runtime<'h> {
                 let fun = self.fun_handles.get(&target_fun_name).unwrap();
                 let value = match fun {
                     Fun::Host(fun) => Value::HostFun(*fun),
-                    Fun::VM(fun) => Value::VMFun(fun.to_object(&*heap)),
+                    Fun::VM(fun) => Value::VMFun(fun.to_object(&heap)),
                 };
-                fun_to_patch.to_object(&*heap).set_constant(index as usize, value);
+                fun_to_patch.to_object(&heap).set_constant(index as usize, value);
             }
         }
 
@@ -109,22 +109,22 @@ impl<'h> Runtime<'h> {
 
         let stack = {
             let heap = self.heap.read().unwrap();
-            let fun_object = fun_handle.to_object(&*heap);
+            let fun_object = fun_handle.to_object(&heap);
             heap.alloc_stack(fun_object).to_handle()
         };
 
         let mut cf = ControlFlow::Continue;
-        while cf.is_continue() {
+        'outer: while cf.is_continue() {
             let mut heap = self.heap.write().unwrap();
             let mut vm = VM {
-                stack: stack.to_object(&*heap).lock(),
-                heap: &*heap,
+                stack: stack.to_object(&heap).lock(),
+                heap: &heap,
             };
 
-            for _ in 0..10 {
+            for _ in 0..100 {
                 cf = vm.execute_next_instr()?;
                 if cf.is_break() {
-                    break;
+                    break 'outer;
                 }
             }
 

@@ -12,6 +12,9 @@ impl List {
     pub fn len(&self) -> usize {
         self.elements.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn get(&self, index: usize) -> Value<'_> {
         unsafe { Value::from_raw_parts(self.value_tag, self.elements[index].load(Ordering::Relaxed)) }
     }

@@ -24,6 +24,9 @@ impl Function {
     pub fn len(&self) -> usize {
         self.constants_tags.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn set_constant(&self, index: usize, value: Value<'_>) {
         let (tag, data) = value.to_raw_parts();
         if tag != self.constants_tags[index] {

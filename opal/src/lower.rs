@@ -33,7 +33,7 @@ pub struct LoopLabels {
     continue_: Label,
 }
 
-pub fn lower_fun<'h>(fun: &TypedFun, heap: &Heap) -> (Handle<Function>, Vec<(Ident, u8)>) {
+pub fn lower_fun(fun: &TypedFun, heap: &Heap) -> (Handle<Function>, Vec<(Ident, u8)>) {
     let mut lowerer = Lowerer {
         bytecode: BytecodeBuffer::new(),
         consts: Vec::new(),

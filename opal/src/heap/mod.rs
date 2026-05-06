@@ -114,7 +114,7 @@ impl Heap {
     pub fn alloc_stack(&self, function: &Object<Function>) -> &Object<Stack> {
         let (tag, data) = Value::Unit.to_raw_parts();
         self.alloc(
-            ObjectTag::List,
+            ObjectTag::Stack,
             Stack(Mutex::new(StackInner {
                 call_stack: vec![],
                 value_stack_tag: vec![tag; 1024],
@@ -149,6 +149,15 @@ unsafe fn unmark_objects_without_handles(mut current: *mut ObjectHeader, work_li
     }
 }
 
+unsafe fn enqueue_object(object: *mut ObjectHeader, work_list: &mut VecDeque<*mut ObjectHeader>) {
+    unsafe {
+        if !*(*object).marked.get_mut() {
+            *(*object).marked.get_mut() = true;
+            work_list.push_back(object);
+        }
+    }
+}
+
 unsafe fn trace_value<'h>(value: Value<'h>, work_list: &mut VecDeque<*mut ObjectHeader>) {
     unsafe {
         let header = ptr::from_ref(match value {
@@ -157,8 +166,7 @@ unsafe fn trace_value<'h>(value: Value<'h>, work_list: &mut VecDeque<*mut Object
             _ => return,
         })
         .cast_mut();
-        *(*header).marked.get_mut() = true;
-        work_list.push_back(header);
+        enqueue_object(header, work_list);
     }
 }
 
@@ -174,26 +182,20 @@ unsafe fn trace_live_objects(work_list: &mut VecDeque<*mut ObjectHeader>) {
                 }
                 ObjectTag::List => {
                     let list = object.cast::<Object<List>>().as_ref_unchecked();
-                    println!("{:?}", list);
                     for element in list.iter() {
                         trace_value(element, work_list);
                     }
                 }
                 ObjectTag::Stack => {
                     let stack = object.cast::<Object<Stack>>().as_ref_unchecked();
-                    println!("{:?}", stack);
                     let mut stack = stack.lock();
                     for value in stack.values() {
                         trace_value(value, work_list);
                     }
                     for frame in &stack.call_stack {
-                        let header = &raw mut (*frame.function).header;
-                        *(*header).marked.get_mut() = true;
-                        work_list.push_back(header);
+                        enqueue_object(&raw mut (*frame.function).header, work_list);
                     }
-                    let header = &raw mut (*stack.function).header;
-                    *(*header).marked.get_mut() = true;
-                    work_list.push_back(header);
+                    enqueue_object(&raw mut (*stack.function).header, work_list);
                 }
             }
         }
@@ -213,7 +215,6 @@ unsafe fn dealloc_unmarked_objects(head: &mut *mut ObjectHeader) {
                 } else {
                     *head = next;
                 }
-                println!("freed some memory: {:?}", (*current).tag);
                 match (*current).tag {
                     ObjectTag::Function => drop(Box::from_raw(current.cast::<Object<Function>>())),
                     ObjectTag::Stack => drop(Box::from_raw(current.cast::<Object<Stack>>())),
