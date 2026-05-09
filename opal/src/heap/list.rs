@@ -1,11 +1,18 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::value::{Value, ValueTag};
+use crate::{
+    heap::object::ObjectTrait,
+    value::{Value, ValueTag},
+};
 
 #[derive(Debug)]
 pub struct List {
     pub(super) value_tag: ValueTag,
     pub(super) elements: Vec<AtomicPtr<()>>,
+}
+
+impl ObjectTrait for List {
+    type Item = ();
 }
 
 impl List {

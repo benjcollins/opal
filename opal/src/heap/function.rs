@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::{
+    heap::object::ObjectTrait,
     instr::Instr,
     value::{Value, ValueTag},
 };
@@ -11,6 +12,10 @@ pub struct Function {
     pub bytecode: Box<[Instr]>,
     pub(super) constants_tags: Box<[ValueTag]>,
     pub(super) constants_data: Box<[AtomicPtr<()>]>,
+}
+
+impl ObjectTrait for Function {
+    type Item = ();
 }
 
 impl Function {

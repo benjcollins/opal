@@ -26,6 +26,7 @@ fn infer_lit(lit: &Lit) -> Type {
         Lit::Float(_) => Type::Numeric(NumericType::Float),
         Lit::Bool(_) => Type::Bool,
         Lit::Unit => Type::Unit,
+        Lit::Str(_) => Type::Str,
     }
 }
 
@@ -67,9 +68,11 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, Ty
 
 fn instantiate(map: &mut HashMap<Ident, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
     match (arg, param) {
-        (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) => Ok(()),
+        (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) | (Type::Str, Type::Str) => {
+            Ok(())
+        }
         (Type::Numeric(a), Type::Numeric(b)) if a == b => Ok(()),
-        (Type::Array(a), Type::Array(b)) => instantiate(map, a, b),
+        (Type::List(a), Type::List(b)) => instantiate(map, a, b),
         (Type::Fun(a), Type::Fun(b)) => {
             if !a.generics.is_empty() || !b.generics.is_empty() {
                 return Err(());
@@ -98,7 +101,7 @@ impl<'e> Inferer<'e> {
     fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), TypeError> {
         let (typed_expr, ty) = match expr {
             Expr::Lit(lit) => {
-                let typed_expr = TypedExpr::Lit(*lit);
+                let typed_expr = TypedExpr::Lit(lit.clone());
                 let ty = infer_lit(lit);
                 (typed_expr, ty)
             }
@@ -114,7 +117,7 @@ impl<'e> Inferer<'e> {
                     typed_elements.push(typed_element);
                 }
                 let typed_expr = TypedExpr::ArrayElements(typed_elements);
-                (typed_expr, Type::Array(Box::new(element_ty.unwrap_or(Type::Void))))
+                (typed_expr, Type::List(Box::new(element_ty.unwrap_or(Type::Void))))
             }
             Expr::ArrayDefaultLength(default, length) => {
                 let (typed_default, default_ty) = self.infer_expr(default)?;
@@ -123,7 +126,7 @@ impl<'e> Inferer<'e> {
                     return Err(TypeError("length type must be of int"));
                 }
                 let typed_expr = TypedExpr::ArrayDefaultLength(Box::new(typed_default), Box::new(typed_length));
-                let ty = Type::Array(Box::new(default_ty));
+                let ty = Type::List(Box::new(default_ty));
                 (typed_expr, ty)
             }
             Expr::Call(fun, args) => {
@@ -194,7 +197,7 @@ impl<'e> Inferer<'e> {
             }
             Expr::Index(array, index) => {
                 let (typed_array, array_ty) = self.infer_expr(array)?;
-                let Type::Array(element_ty) = array_ty else {
+                let Type::List(element_ty) = array_ty else {
                     return Err(TypeError("cannot index non array type"));
                 };
                 let (typed_index, index_ty) = self.infer_expr(index)?;

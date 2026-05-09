@@ -11,7 +11,7 @@ pub enum Token {
     Float(f64),
     Keyword(Keyword),
     Symbol(Symbol),
-    String(String),
+    Str(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,7 +21,7 @@ pub enum TokenKind {
     Float,
     Keyword(Keyword),
     Symbol(Symbol),
-    String,
+    Str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Hash, Display)]
@@ -144,7 +144,7 @@ impl Token {
             Token::Float(_) => TokenKind::Float,
             &Token::Keyword(keyword) => TokenKind::Keyword(keyword),
             &Token::Symbol(symbol) => TokenKind::Symbol(symbol),
-            Token::String(_) => TokenKind::String,
+            Token::Str(_) => TokenKind::Str,
         }
     }
 }
@@ -157,7 +157,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Float => write!(f, "float literal"),
             TokenKind::Keyword(keyword) => write!(f, "'{}'", keyword),
             TokenKind::Symbol(symbol) => write!(f, "'{}'", symbol.as_str()),
-            TokenKind::String => write!(f, "string literal"),
+            TokenKind::Str => write!(f, "string literal"),
         }
     }
 }
@@ -250,5 +250,23 @@ impl TokenMatcher for Float {
 
     fn kind(&self) -> TokenKind {
         TokenKind::Float
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Str;
+
+impl TokenMatcher for Str {
+    type Contents = String;
+
+    fn matches(&self, token: Token) -> Result<Self::Contents, Token> {
+        match token {
+            Token::Str(value) => Ok(value),
+            token => Err(token),
+        }
+    }
+
+    fn kind(&self) -> TokenKind {
+        TokenKind::Str
     }
 }

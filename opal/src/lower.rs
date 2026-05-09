@@ -25,6 +25,7 @@ pub struct Lowerer<'h> {
     pub vars: HashMap<VarId, StackOperand>,
     pub fun_ptrs: Vec<(Ident, u8)>,
     pub loop_stack: Vec<LoopLabels>,
+    pub heap: &'h Heap,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +44,7 @@ pub fn lower_fun(fun: &TypedFun, heap: &Heap) -> (Handle<Function>, Vec<(Ident, 
         vars: HashMap::new(),
         fun_ptrs: Vec::new(),
         loop_stack: Vec::new(),
+        heap,
     };
     for param in &fun.params {
         let reg = lowerer.alloc_stack_slot();
@@ -81,11 +83,15 @@ impl<'h> Lowerer<'h> {
         label
     }
     fn lower_expr_lit_val(&mut self, lit: &Lit) -> Operand {
-        let cst = match *lit {
-            Lit::Int(value) => self.add_const(Value::Int(value)),
-            Lit::Float(value) => self.add_const(Value::Float(value)),
-            Lit::Bool(value) => self.add_const(Value::Bool(value)),
+        let cst = match lit {
+            Lit::Int(value) => self.add_const(Value::Int(*value)),
+            Lit::Float(value) => self.add_const(Value::Float(*value)),
+            Lit::Bool(value) => self.add_const(Value::Bool(*value)),
             Lit::Unit => self.add_const(Value::Unit),
+            Lit::Str(value) => {
+                let bytes = self.heap.alloc_bytes(value.as_bytes());
+                self.add_const(Value::Str(bytes))
+            }
         };
         Operand::Const(cst)
     }

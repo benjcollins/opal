@@ -24,11 +24,12 @@ impl VarUse {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Lit {
     Int(i64),
     Float(f64),
     Bool(bool),
+    Str(String),
     Unit,
 }
 

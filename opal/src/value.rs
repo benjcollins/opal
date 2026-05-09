@@ -1,9 +1,9 @@
-use std::{convert::Infallible, fmt, marker::PhantomData, mem, ptr};
+use std::{convert::Infallible, fmt, marker::PhantomData, mem, ops::Deref, ptr};
 
 use strum::{EnumIs, FromRepr};
 
 use crate::{
-    heap::{function::Function, list, object::Object},
+    heap::{bytes::Bytes, function::Function, list, object::Object},
     runtime::HostFun,
     ty::{BorrowedType, NumericType},
     vm::RuntimeError,
@@ -16,6 +16,7 @@ pub enum Value<'h> {
     Bool(bool),
     Unit,
     List(&'h Object<list::List>),
+    Str(&'h Object<Bytes>),
 
     HostFun(HostFun),
     VMFun(&'h Object<Function>),
@@ -32,12 +33,15 @@ pub enum ValueTag {
     List,
     Fun,
     Void,
+    Str,
 }
 
 pub struct List<'h, T> {
     object: &'h Object<list::List>,
     phantom: PhantomData<T>,
 }
+
+pub struct Str<'h>(&'h Object<Bytes>);
 
 pub trait ValueConv<'h> {
     const TYPE: BorrowedType<'static>;
@@ -59,6 +63,7 @@ impl<'h> Value<'h> {
             Value::Bool(value) => (ValueTag::Bool, ptr::without_provenance_mut(if value { 1 } else { 0 })),
             Value::Unit => (ValueTag::Unit, ptr::null_mut()),
             Value::List(object) => (ValueTag::List, ptr::from_ref(object).cast::<()>().cast_mut()),
+            Value::Str(object) => (ValueTag::Str, ptr::from_ref(object).cast::<()>().cast_mut()),
 
             Value::HostFun(value) => (ValueTag::Fun, (value as *mut ()).map_addr(|addr| addr | 1)),
             Value::VMFun(object) => (ValueTag::Fun, ptr::from_ref(object).cast::<()>().cast_mut()),
@@ -72,6 +77,7 @@ impl<'h> Value<'h> {
             ValueTag::Bool => Value::Bool(data.addr() == 1),
             ValueTag::Unit => Value::Unit,
             ValueTag::List => Value::List(unsafe { data.cast::<Object<list::List>>().as_ref_unchecked() }),
+            ValueTag::Str => Value::Str(unsafe { data.cast::<Object<Bytes>>().as_ref_unchecked() }),
             ValueTag::Fun => {
                 if data.addr() == 0 {
                     Value::UnpatchedFun
@@ -103,6 +109,7 @@ impl<'h> fmt::Display for Value<'h> {
                 }
                 write!(f, "]")
             }
+            Value::Str(str) => write!(f, "\"{}\"", unsafe { str::from_utf8_unchecked(str.as_bytes()) }),
             Value::HostFun(_) => write!(f, "<host fun>"),
             Value::VMFun(_) => write!(f, "<vm fun>"),
             Value::UnpatchedFun => write!(f, "<null fun>"),
@@ -114,6 +121,17 @@ impl<'h, T: ValueConv<'h>> HostFunResult<'h> for Result<T, RuntimeError> {
     type Output = T;
     fn map(self) -> Result<Value<'h>, RuntimeError> {
         self.map(|t| t.into())
+    }
+}
+
+impl<'h> ValueConv<'h> for Str<'h> {
+    const TYPE: BorrowedType<'static> = BorrowedType::Str;
+    fn into(self) -> Value<'h> {
+        Value::Str(self.0)
+    }
+    fn from(value: Value<'h>) -> Self {
+        let Value::Str(value) = value else { panic!() };
+        Str(value)
     }
 }
 
@@ -199,5 +217,13 @@ impl<'h, T: ValueConv<'h>> List<'h, T> {
     }
     pub fn set(&self, index: i64, value: T) {
         self.object.set(index as usize, value.into());
+    }
+}
+
+impl<'h> Deref for Str<'h> {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { str::from_utf8_unchecked(self.0.as_bytes()) }
     }
 }

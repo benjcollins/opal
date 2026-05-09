@@ -8,7 +8,7 @@ use crate::{
         Module, ModuleItem, PrefixOp, Stmt, VarDef, VarUse,
     },
     lexer::{Lexer, Span},
-    token::{self, Float, Int, Keyword, Symbol, Token, TokenKind, TokenMatcher},
+    token::{self, Float, Int, Keyword, Str, Symbol, Token, TokenKind, TokenMatcher},
 };
 
 pub struct Parser<'s, 'p> {
@@ -222,6 +222,9 @@ impl<'s, 'p> Parser<'s, 'p> {
         }
         if let Some(value) = self.consume(Float) {
             return Ok(Expr::Lit(Lit::Float(value)));
+        }
+        if let Some(value) = self.consume(Str) {
+            return Ok(Expr::Lit(Lit::Str(value)));
         }
         if self.advance(Keyword::Fun) {
             self.expect(Symbol::OpenParen)?;

@@ -1,6 +1,7 @@
 use std::{
+    alloc::{Layout, alloc, dealloc},
     collections::VecDeque,
-    ptr,
+    ptr, slice,
     sync::{
         Mutex, Once,
         atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
@@ -9,9 +10,10 @@ use std::{
 
 use crate::{
     heap::{
+        bytes::Bytes,
         function::Function,
         list::List,
-        object::{Object, ObjectHeader, ObjectTag},
+        object::{Object, ObjectHeader, ObjectTag, ObjectTrait},
         stack::{Stack, StackInner},
     },
     instr::Instr,
@@ -31,6 +33,12 @@ pub struct Heap {
     pub objects_head: AtomicPtr<ObjectHeader>,
 }
 
+fn object_layout<T: ObjectTrait>(body: &T) -> (Layout, usize) {
+    Layout::new::<Object<T>>()
+        .extend(Layout::array::<T::Item>(T::size(&body)).unwrap())
+        .unwrap()
+}
+
 impl Heap {
     pub fn init() -> Option<Heap> {
         static ONCE: Once = Once::new();
@@ -42,7 +50,7 @@ impl Heap {
             objects_head: AtomicPtr::null(),
         })
     }
-    fn alloc<T>(&self, tag: ObjectTag, body: T) -> &Object<T> {
+    fn alloc<T: ObjectTrait>(&self, tag: ObjectTag, body: T, extended_data: &[T::Item]) -> &Object<T> {
         unsafe {
             let header = ObjectHeader {
                 next: AtomicPtr::null(),
@@ -50,8 +58,13 @@ impl Heap {
                 tag,
                 marked: AtomicBool::new(false),
             };
-            let object_ptr = Box::into_raw(Box::new(Object { header, body }));
+            let (layout, offset) = object_layout(&body);
+            let object_ptr = alloc(layout).cast::<Object<T>>();
+            object_ptr.write(Object { header, body });
             let header_ptr = object_ptr.cast::<ObjectHeader>();
+
+            let extended = slice::from_raw_parts_mut(object_ptr.byte_add(offset).cast(), extended_data.len());
+            extended.copy_from_slice(extended_data);
 
             let mut objects_head = self.objects_head.load(Ordering::Relaxed);
             loop {
@@ -83,6 +96,7 @@ impl Heap {
                 constants_data: constants_data.into(),
                 frame_size,
             },
+            &[],
         )
     }
     pub fn alloc_list_elements(&self, elements: &[Value]) -> &Object<List> {
@@ -100,7 +114,7 @@ impl Heap {
             }
             (first_element_tag, data)
         };
-        self.alloc(ObjectTag::List, List { value_tag, elements })
+        self.alloc(ObjectTag::List, List { value_tag, elements }, &[])
     }
     pub fn alloc_list_default_size(&self, default: Value, size: usize) -> &Object<List> {
         let (tag, data) = default.to_raw_parts();
@@ -110,6 +124,7 @@ impl Heap {
                 value_tag: tag,
                 elements: (0..size).map(|_| AtomicPtr::new(data)).collect(),
             },
+            &[],
         )
     }
     pub fn alloc_stack(&self, function: &Object<Function>) -> &Object<Stack> {
@@ -124,7 +139,11 @@ impl Heap {
                 base_ptr: 0,
                 instr_ptr: 0,
             })),
+            &[],
         )
+    }
+    pub fn alloc_bytes(&self, bytes: &[u8]) -> &Object<Bytes> {
+        self.alloc(ObjectTag::Bytes, Bytes { len: bytes.len() }, bytes)
     }
     pub fn collect(&mut self) {
         unsafe {
@@ -198,6 +217,7 @@ unsafe fn trace_live_objects(work_list: &mut VecDeque<*mut ObjectHeader>) {
                     }
                     enqueue_object(&raw mut (*stack.function).header, work_list);
                 }
+                ObjectTag::Bytes => (),
             }
         }
     }
@@ -216,11 +236,13 @@ unsafe fn dealloc_unmarked_objects(head: &mut *mut ObjectHeader) {
                 } else {
                     *head = next;
                 }
-                match (*current).tag {
-                    ObjectTag::Function => drop(Box::from_raw(current.cast::<Object<Function>>())),
-                    ObjectTag::Stack => drop(Box::from_raw(current.cast::<Object<Stack>>())),
-                    ObjectTag::List => drop(Box::from_raw(current.cast::<Object<List>>())),
-                }
+                let (layout, _) = match (*current).tag {
+                    ObjectTag::Function => object_layout(&(*current.cast::<Object<Function>>()).body),
+                    ObjectTag::Stack => object_layout(&(*current.cast::<Object<Stack>>()).body),
+                    ObjectTag::List => object_layout(&(*current.cast::<Object<List>>()).body),
+                    ObjectTag::Bytes => object_layout(&(*current.cast::<Object<List>>()).body),
+                };
+                dealloc(current.cast(), layout);
             } else {
                 prev = current;
             }

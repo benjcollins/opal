@@ -5,8 +5,9 @@ pub enum Type {
     Bool,
     Unit,
     Void,
+    Str,
     Numeric(NumericType),
-    Array(Box<Type>),
+    List(Box<Type>),
     Fun(FunSig),
     Generic(Ident),
 }
@@ -16,6 +17,7 @@ pub enum BorrowedType<'a> {
     Bool,
     Unit,
     Void,
+    Str,
     Numeric(NumericType),
     Array(&'a BorrowedType<'a>),
     Fun(&'a [BorrowedType<'a>], &'a BorrowedType<'a>),
@@ -72,7 +74,7 @@ impl TryFrom<&Expr> for Type {
                     return Err(());
                 }
                 let param = param.as_ref().try_into()?;
-                Type::Array(Box::new(param))
+                Type::List(Box::new(param))
             }
             _ => return Err(()),
         })
@@ -111,7 +113,8 @@ impl<'a> From<&BorrowedType<'a>> for Type {
             BorrowedType::Bool => Type::Bool,
             BorrowedType::Unit => Type::Unit,
             BorrowedType::Void => Type::Void,
-            BorrowedType::Array(ty) => Type::Array(Box::new(ty.into())),
+            BorrowedType::Str => Type::Str,
+            BorrowedType::Array(ty) => Type::List(Box::new(ty.into())),
             BorrowedType::Fun(params, returns) => Type::Fun(FunSig {
                 generics: vec![],
                 params: Vec::from_iter(params.iter().map(|ty| ty.into())),

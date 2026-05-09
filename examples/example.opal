@@ -1,5 +1,6 @@
 module main;
 
 fun main() {
-    print("Hello, World!");
+    println("Hello, World!");
+    println("Goodbye!");
 }

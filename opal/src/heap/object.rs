@@ -1,9 +1,17 @@
 use std::{
     ops::{Deref, DerefMut},
+    ptr, slice,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32},
 };
 
-use crate::heap::handle::Handle;
+use crate::heap::{handle::Handle, object_layout};
+
+pub trait ObjectTrait {
+    type Item: Copy;
+    fn size(&self) -> usize {
+        0
+    }
+}
 
 #[derive(Debug)]
 pub struct ObjectHeader {
@@ -25,6 +33,7 @@ pub enum ObjectTag {
     Function,
     Stack,
     List,
+    Bytes,
 }
 
 impl<T> Deref for Object<T> {
@@ -44,5 +53,12 @@ impl<T> DerefMut for Object<T> {
 impl<T> Object<T> {
     pub fn to_handle(&self) -> Handle<T> {
         Handle::new(self)
+    }
+}
+
+impl<T: ObjectTrait> Object<T> {
+    pub fn extended(&self) -> &[T::Item] {
+        let (_, offset) = object_layout(&self.body);
+        unsafe { slice::from_raw_parts(ptr::from_ref(self).byte_add(offset).cast(), self.size()) }
     }
 }

@@ -112,7 +112,7 @@ impl<'src> Lexer<'src> {
                     string.push(ch);
                 }
                 self.advance();
-                break Token::String(string);
+                break Token::Str(string);
             }
 
             if self.consume("//") {

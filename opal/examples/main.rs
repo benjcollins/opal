@@ -6,7 +6,7 @@ use std::sync::RwLock;
 use opal::heap::Heap;
 use opal::parser::parse_module;
 use opal::runtime::Runtime;
-use opal::value::List;
+use opal::value::{List, Str};
 use opal::vm::RuntimeError;
 
 fn main() -> ExitCode {
@@ -16,6 +16,7 @@ fn main() -> ExitCode {
     runtime.register_native_fun(len);
     runtime.register_native_fun(assert);
     runtime.register_native_fun(print);
+    runtime.register_native_fun(println);
 
     let path = Path::new("../examples/example.opal");
     let source = fs::read_to_string(path).unwrap();
@@ -53,6 +54,12 @@ fn main() -> ExitCode {
 #[opal_proc::fun]
 fn print<T>(item: T) -> Result<(), RuntimeError> {
     println!("{}", item.0);
+    Ok(())
+}
+
+#[opal_proc::fun]
+fn println<'h>(str: Str) -> Result<(), RuntimeError> {
+    println!("{}", &*str);
     Ok(())
 }
 

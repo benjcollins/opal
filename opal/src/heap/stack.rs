@@ -5,12 +5,19 @@ use std::{
 };
 
 use crate::{
-    heap::{function::Function, object::Object},
+    heap::{
+        function::Function,
+        object::{Object, ObjectTrait},
+    },
     value::{Value, ValueTag},
 };
 
 #[derive(Debug)]
 pub struct Stack(pub Mutex<StackInner>);
+
+impl ObjectTrait for Stack {
+    type Item = ();
+}
 
 #[derive(Debug)]
 pub struct StackInner {
