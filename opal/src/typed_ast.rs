@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 use crate::{
     ast::{ArithOp, BitwiseOp, CompOp, EqualityOp, Ident, Lit, LogicalOp},
@@ -10,7 +10,7 @@ pub struct VarId(pub u32);
 
 #[derive(Debug, Clone)]
 pub struct LocalTypedVar {
-    pub mutable: bool,
+    pub mutated: Cell<bool>,
     pub ident: Ident,
     pub ty: Type,
     pub id: VarId,
@@ -76,7 +76,7 @@ pub enum TypedStmt {
         src: TypedExpr,
     },
     Expr(TypedExpr),
-    Return(TypedExpr),
+    Return(Option<TypedExpr>),
     If(TypedIf),
     While {
         cond: TypedExpr,

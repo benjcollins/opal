@@ -84,11 +84,11 @@ impl<'h> Lowerer<'h> {
     }
     fn lower_expr_lit_val(&mut self, lit: &Lit) -> Operand {
         let cst = match lit {
-            Lit::Int(value) => self.add_const(Value::Int(*value)),
-            Lit::Float(value) => self.add_const(Value::Float(*value)),
-            Lit::Bool(value) => self.add_const(Value::Bool(*value)),
-            Lit::Unit => self.add_const(Value::Unit),
-            Lit::Str(value) => {
+            Lit::Int { value, .. } => self.add_const(Value::Int(*value)),
+            Lit::Float { value, .. } => self.add_const(Value::Float(*value)),
+            Lit::Bool { value, .. } => self.add_const(Value::Bool(*value)),
+            Lit::Unit { .. } => self.add_const(Value::Unit),
+            Lit::Str { value, .. } => {
                 let bytes = self.heap.alloc_bytes(value.as_bytes());
                 self.add_const(Value::Str(bytes))
             }
@@ -452,7 +452,10 @@ impl<'h> Lowerer<'h> {
                 self.exit_stack_frame();
             }
             TypedStmt::Return(expr) => {
-                let val = self.lower_expr_val(expr);
+                let val = match expr {
+                    Some(expr) => self.lower_expr_val(expr),
+                    None => Operand::Const(self.add_const(Value::Unit)),
+                };
                 self.bytecode.instr().ret(val);
             }
             TypedStmt::If(if_) => self.lower_if(if_),

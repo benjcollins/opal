@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, str::FromStr, sync::LazyLock};
+use std::{cmp::Reverse, collections::HashMap, sync::LazyLock};
 
 use strum::IntoEnumIterator;
 
@@ -22,6 +22,14 @@ static SYMBOLS: LazyLock<Vec<Symbol>> = LazyLock::new(|| {
     let mut symbols = Vec::from_iter(Symbol::iter());
     symbols.sort_by_key(|a| Reverse(a.as_str().len()));
     symbols
+});
+
+static KEYWORDS: LazyLock<HashMap<InternedStr, Keyword>> = LazyLock::new(|| {
+    let mut keywords = HashMap::new();
+    for keyword in Keyword::iter() {
+        keywords.insert(InternedStr::new(keyword.to_string()), keyword);
+    }
+    keywords
 });
 
 impl<'src> Lexer<'src> {
@@ -78,10 +86,10 @@ impl<'src> Lexer<'src> {
                 while self.peek().is_some_and(|ch| ch.is_alphanumeric() || ch == '_') {
                     self.advance();
                 }
-                let ident = &self.source[start..self.offset];
-                break Keyword::from_str(ident)
-                    .map(Token::Keyword)
-                    .unwrap_or(Token::Ident(InternedStr::new(ident)));
+                let str = InternedStr::new(&self.source[start..self.offset]);
+                break KEYWORDS
+                    .get(&str)
+                    .map_or(Token::Ident(str), |keyword| Token::Keyword(*keyword));
             }
 
             if ch.is_numeric() {

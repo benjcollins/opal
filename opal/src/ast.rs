@@ -1,36 +1,18 @@
-use crate::intern::InternedStr;
+use crate::{intern::InternedStr, lexer::Span};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Ident(pub InternedStr);
-
-impl Ident {
-    pub fn new(s: &str) -> Ident {
-        Ident(InternedStr::new(s))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct VarDef {
-    pub mutable: bool,
-    pub ident: Ident,
-}
-
-#[derive(Debug, Clone)]
-pub struct VarUse(pub Ident);
-
-impl VarUse {
-    pub fn ident(&self) -> &Ident {
-        &self.0
-    }
+pub struct Ident {
+    pub str: InternedStr,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub enum Lit {
-    Int(i64),
-    Float(f64),
-    Bool(bool),
-    Str(String),
-    Unit,
+    Int { value: i64, span: Span },
+    Float { value: f64, span: Span },
+    Bool { value: bool, span: Span },
+    Str { value: String, span: Span },
+    Unit { open_paren: Span, close_paren: Span },
 }
 
 #[derive(Debug, Clone)]
@@ -38,7 +20,7 @@ pub enum Expr {
     Lit(Lit),
     Call(Box<Expr>, Vec<Expr>),
     Paren(Box<Expr>),
-    Var(VarUse),
+    Var(Ident),
     ArrayElements(Vec<Expr>),
     ArrayDefaultLength(Box<Expr>, Box<Expr>),
     Index(Box<Expr>, Box<Expr>),
@@ -114,7 +96,7 @@ pub enum AssignOp {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Let { var: VarDef, ty: Option<Expr>, expr: Expr },
+    Var { name: Ident, ty: Option<Expr>, expr: Expr },
     Assign { dst: Expr, op: Option<AssignOp>, src: Expr },
     Break,
     Continue,
@@ -146,7 +128,7 @@ pub struct Block {
 #[derive(Debug)]
 pub struct Fun {
     pub name: Ident,
-    pub params: Vec<(VarDef, Expr)>,
+    pub params: Vec<(Ident, Expr)>,
     pub returns: Option<Expr>,
     pub block: Block,
 }

@@ -1,9 +1,10 @@
 use std::{collections::HashMap, sync::RwLock};
 
 use crate::{
-    ast::{Ident, Module, ModuleItem},
-    heap::{function::Function, handle::Handle, stack::StackGuard, Heap},
+    ast::{Module, ModuleItem},
+    heap::{Heap, function::Function, handle::Handle, stack::StackGuard},
     infer::infer_fun,
+    intern::InternedStr,
     lower::lower_fun,
     ty::{BorrowedType, FunSig, Type},
     value::Value,
@@ -24,7 +25,12 @@ pub struct TypedHostFun {
 impl TypedHostFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
-            generics: self.generics.iter().map(|name| Ident::new(name)).collect(),
+            generics: self
+                .generics
+                .iter()
+                .copied()
+                .map(|name| InternedStr::new(name))
+                .collect(),
             params: Vec::from_iter(self.params.iter().map(|ty| ty.into())),
             returns: Box::new((&self.returns).into()),
         }
@@ -33,8 +39,8 @@ impl TypedHostFun {
 
 pub struct Runtime<'h> {
     heap: &'h RwLock<Heap>,
-    fun_sigs: HashMap<Ident, FunSig>,
-    fun_handles: HashMap<Ident, Fun>,
+    fun_sigs: HashMap<InternedStr, FunSig>,
+    fun_handles: HashMap<InternedStr, Fun>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,8 +58,8 @@ impl<'h> Runtime<'h> {
         }
     }
     pub fn register_native_fun(&mut self, fun: TypedHostFun) {
-        self.fun_sigs.insert(Ident::new(fun.name), fun.sig());
-        self.fun_handles.insert(Ident::new(fun.name), Fun::Host(fun.fun));
+        self.fun_sigs.insert(InternedStr::new(fun.name), fun.sig());
+        self.fun_handles.insert(InternedStr::new(fun.name), Fun::Host(fun.fun));
     }
     pub fn compile_module(&mut self, module: &Module) -> Result<(), ()> {
         for item in &module.items {
@@ -70,7 +76,7 @@ impl<'h> Runtime<'h> {
                         .map(|ty| ty.try_into().unwrap())
                         .unwrap_or(Type::Unit);
                     self.fun_sigs
-                        .insert(fun.name.clone(), FunSig::new(vec![], params, returns));
+                        .insert(fun.name.str.clone(), FunSig::new(vec![], params, returns));
                 }
             }
         }
@@ -83,7 +89,8 @@ impl<'h> Runtime<'h> {
                 ModuleItem::Fun(fun) => {
                     let typed_fun = infer_fun(fun, &self.fun_sigs).unwrap();
                     let (fun_handle, fun_ptrs) = lower_fun(&typed_fun, &heap);
-                    self.fun_handles.insert(fun.name.clone(), Fun::VM(fun_handle.clone()));
+                    self.fun_handles
+                        .insert(fun.name.str.clone(), Fun::VM(fun_handle.clone()));
                     funs_to_patch.push((fun_handle, fun_ptrs));
                 }
             }
@@ -91,7 +98,7 @@ impl<'h> Runtime<'h> {
 
         for (fun_to_patch, fun_ptrs) in funs_to_patch {
             for (target_fun_name, index) in fun_ptrs {
-                let fun = self.fun_handles.get(&target_fun_name).unwrap();
+                let fun = self.fun_handles.get(&target_fun_name.str).unwrap();
                 let value = match fun {
                     Fun::Host(fun) => Value::HostFun(*fun),
                     Fun::VM(fun) => Value::VMFun(fun.to_object(&heap)),
@@ -103,7 +110,7 @@ impl<'h> Runtime<'h> {
         Ok(())
     }
     pub fn execute_fun(&self, name: &str) -> Result<(), RuntimeError> {
-        let Fun::VM(fun_handle) = self.fun_handles.get(&Ident::new(name)).cloned().unwrap() else {
+        let Fun::VM(fun_handle) = self.fun_handles.get(&InternedStr::new(name)).cloned().unwrap() else {
             panic!()
         };
 

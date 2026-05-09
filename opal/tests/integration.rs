@@ -104,9 +104,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             for item in module.items {
                 let ModuleItem::Fun(fun) = item;
-                let fun_name = fun.name.0.as_str().to_string();
+                let fun_name = fun.name.str.as_str().to_string();
                 if fun_name.starts_with("test_") {
-                    let test_name = format!("{}::{}", module.name.0, fun.name.0);
+                    let test_name = format!("{}::{}", module.name.str, fun.name.str);
                     let source = source.clone();
                     let path = path.clone();
                     let heap = heap.clone();

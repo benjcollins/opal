@@ -1,6 +1,7 @@
 use std::{
     alloc::{Layout, alloc, dealloc},
     fmt,
+    ops::Deref,
     ptr::copy,
     str,
     sync::{
@@ -86,6 +87,14 @@ impl Drop for InternedStr {
             INTERNER.str_to_id.remove(str);
             unsafe { dealloc(entry.ptr, Layout::from_size_align_unchecked(entry.len, 1)) };
         }
+    }
+}
+
+impl Deref for InternedStr {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
     }
 }
 

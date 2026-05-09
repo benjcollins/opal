@@ -5,7 +5,7 @@ use colored::Colorize;
 use crate::{
     ast::{
         ArithOp, AssignOp, BitwiseOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp,
-        Module, ModuleItem, PrefixOp, Stmt, VarDef, VarUse,
+        Module, ModuleItem, PrefixOp, Stmt,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Str, Symbol, Token, TokenKind, TokenMatcher},
@@ -152,22 +152,22 @@ impl<'s, 'p> Parser<'s, 'p> {
             recover: HashMap::new(),
         }
     }
-    fn expect<T>(&mut self, token: impl TokenMatcher<Contents = T>) -> Result<T, Recovered> {
-        match self.consume(token) {
+    fn expect<T>(&mut self, matcher: impl TokenMatcher<Contents = T>) -> Result<(T, Span), Recovered> {
+        match self.consume(matcher) {
             Some(token) => Ok(token),
             None => Err(self.error()),
         }
     }
-    fn consume<T>(&mut self, token_type: impl TokenMatcher<Contents = T>) -> Option<T> {
+    fn consume<T>(&mut self, matcher: impl TokenMatcher<Contents = T>) -> Option<(T, Span)> {
         let (token, span) = self.token.take()?;
-        match token_type.matches(token) {
+        match matcher.matches(token) {
             Ok(item) => {
                 self.token = self.lexer.next_token();
                 self.expected.truncate(0);
-                Some(item)
+                Some((item, span))
             }
             Err(token) => {
-                self.expected.push(token_type.kind());
+                self.expected.push(matcher.kind());
                 self.token = Some((token, span));
                 None
             }
@@ -217,14 +217,14 @@ impl<'s, 'p> Parser<'s, 'p> {
         }
     }
     fn parse_value(&mut self) -> Result<Expr, Recovered> {
-        if let Some(value) = self.consume(Int) {
-            return Ok(Expr::Lit(Lit::Int(value)));
+        if let Some((value, span)) = self.consume(Int) {
+            return Ok(Expr::Lit(Lit::Int { value, span }));
         }
-        if let Some(value) = self.consume(Float) {
-            return Ok(Expr::Lit(Lit::Float(value)));
+        if let Some((value, span)) = self.consume(Float) {
+            return Ok(Expr::Lit(Lit::Float { value, span }));
         }
-        if let Some(value) = self.consume(Str) {
-            return Ok(Expr::Lit(Lit::Str(value)));
+        if let Some((value, span)) = self.consume(Str) {
+            return Ok(Expr::Lit(Lit::Str { value, span }));
         }
         if self.advance(Keyword::Fun) {
             self.expect(Symbol::OpenParen)?;
@@ -258,22 +258,25 @@ impl<'s, 'p> Parser<'s, 'p> {
                 return Err(self.error());
             }
         }
-        if self.advance(Symbol::OpenParen) {
-            if self.advance(Symbol::CloseParen) {
-                return Ok(Expr::Lit(Lit::Unit));
+        if let Some((_, open_paren)) = self.consume(Symbol::OpenParen) {
+            if let Some((_, close_paren)) = self.consume(Symbol::CloseParen) {
+                return Ok(Expr::Lit(Lit::Unit {
+                    open_paren,
+                    close_paren,
+                }));
             }
             let expr = self.parse_expr(0)?;
             self.expect(Symbol::CloseParen)?;
             return Ok(Expr::Paren(Box::new(expr)));
         }
-        if self.advance(Keyword::True) {
-            return Ok(Expr::Lit(Lit::Bool(true)));
+        if let Some((_, span)) = self.consume(Keyword::True) {
+            return Ok(Expr::Lit(Lit::Bool { value: true, span }));
         }
-        if self.advance(Keyword::False) {
-            return Ok(Expr::Lit(Lit::Bool(false)));
+        if let Some((_, span)) = self.consume(Keyword::False) {
+            return Ok(Expr::Lit(Lit::Bool { value: false, span }));
         }
-        if let Some(ident) = self.consume(token::Ident) {
-            return Ok(Expr::Var(VarUse(Ident(ident))));
+        if let Some((str, span)) = self.consume(token::Ident) {
+            return Ok(Expr::Var(Ident { str, span }));
         }
         Err(self.error())
     }
@@ -321,11 +324,6 @@ impl<'s, 'p> Parser<'s, 'p> {
         }
         Ok(left)
     }
-    pub fn parse_var_def(&mut self) -> Result<VarDef, Recovered> {
-        let mutable = self.advance(Keyword::Mut);
-        let ident = Ident(self.expect(token::Ident)?);
-        Ok(VarDef { mutable, ident })
-    }
     pub fn parse_if(&mut self) -> Result<If, Recovered> {
         self.expect(Symbol::OpenParen)?;
         let cond = self.parse_expr(0)?;
@@ -344,7 +342,8 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_stmt(&mut self) -> Result<Stmt, Recovered> {
         if self.advance(Keyword::Let) {
-            let var = self.parse_var_def()?;
+            let (str, span) = self.expect(token::Ident)?;
+            let name = Ident { str, span };
             let ty = if self.advance(Symbol::Colon) {
                 Some(self.parse_expr(0)?)
             } else {
@@ -353,7 +352,7 @@ impl<'s, 'p> Parser<'s, 'p> {
             self.expect(Symbol::Equals)?;
             let expr = self.parse_expr(0)?;
             self.expect(Symbol::Semicolon)?;
-            return Ok(Stmt::Let { var, ty, expr });
+            return Ok(Stmt::Var { name, ty, expr });
         }
         if self.advance(Keyword::Return) {
             let expr = if !self.advance(Symbol::Semicolon) {
@@ -437,13 +436,15 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {
         if self.advance(Keyword::Fun) {
-            let name = Ident(self.expect(token::Ident)?);
+            let (str, span) = self.expect(token::Ident)?;
+            let name = Ident { str, span };
             self.expect(Symbol::OpenParen)?;
             let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
-                let var = self_.parse_var_def()?;
+                let (str, span) = self_.expect(token::Ident)?;
+                let name = Ident { str, span };
                 self_.expect(Symbol::Colon)?;
                 let ty = self_.parse_expr(0)?;
-                Ok((var, ty))
+                Ok((name, ty))
             })?;
             let returns = if self.advance(Symbol::RightArrow) {
                 Some(self.parse_expr(0)?)
@@ -463,7 +464,8 @@ impl<'s, 'p> Parser<'s, 'p> {
     }
     fn parse_module(&mut self) -> Result<Module, Recovered> {
         self.expect(Keyword::Module)?;
-        let name = Ident(self.expect(token::Ident)?);
+        let (str, span) = self.expect(token::Ident)?;
+        let name = Ident { str, span };
         self.expect(Symbol::Semicolon)?;
 
         let mut items = vec![];

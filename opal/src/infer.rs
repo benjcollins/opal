@@ -1,10 +1,12 @@
 use std::{
+    cell::Cell,
     collections::{HashMap, hash_map::Entry},
     rc::Rc,
 };
 
 use crate::{
-    ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, PrefixOp, Stmt, VarDef},
+    ast::{AssignOp, Block, Else, Expr, Fun, Ident, If, InfixOp, Lit, PrefixOp, Stmt},
+    intern::InternedStr,
     scope::Scope,
     ty::{FunSig, NumericType, Type},
     typed_ast::{
@@ -15,25 +17,25 @@ use crate::{
 
 pub struct Inferer<'e> {
     next_var_id: u32,
-    scope: Scope<Ident, Rc<LocalTypedVar>>,
-    env: &'e HashMap<Ident, FunSig>,
+    scope: Scope<InternedStr, Rc<LocalTypedVar>>,
+    env: &'e HashMap<InternedStr, FunSig>,
     returns: Type,
 }
 
 fn infer_lit(lit: &Lit) -> Type {
     match lit {
-        Lit::Int(_) => Type::Numeric(NumericType::Int),
-        Lit::Float(_) => Type::Numeric(NumericType::Float),
-        Lit::Bool(_) => Type::Bool,
-        Lit::Unit => Type::Unit,
-        Lit::Str(_) => Type::Str,
+        Lit::Int { .. } => Type::Numeric(NumericType::Int),
+        Lit::Float { .. } => Type::Numeric(NumericType::Float),
+        Lit::Bool { .. } => Type::Bool,
+        Lit::Unit { .. } => Type::Unit,
+        Lit::Str { .. } => Type::Str,
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeError(pub &'static str);
 
-pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, TypeError> {
+pub fn infer_fun(fun: &Fun, env: &HashMap<InternedStr, FunSig>) -> Result<TypedFun, TypeError> {
     let returns = fun
         .returns
         .as_ref()
@@ -66,7 +68,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<Ident, FunSig>) -> Result<TypedFun, Ty
     })
 }
 
-fn instantiate(map: &mut HashMap<Ident, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
+fn instantiate(map: &mut HashMap<InternedStr, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
     match (arg, param) {
         (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) | (Type::Str, Type::Str) => {
             Ok(())
@@ -155,13 +157,13 @@ impl<'e> Inferer<'e> {
                 (expr, sig.returns.as_ref().clone())
             }
             Expr::Paren(node) => self.infer_expr(node)?,
-            Expr::Var(var) => {
-                let (typed_var, ty) = if let Some(var) = self.scope.get(var.ident()) {
+            Expr::Var(name) => {
+                let (typed_var, ty) = if let Some(var) = self.scope.get(&name.str) {
                     (TypedVar::Local(var.clone()), var.ty.clone())
-                } else if let Some(sig) = self.env.get(var.ident()) {
-                    (TypedVar::Env(var.ident().clone()), Type::Fun(sig.clone()))
+                } else if let Some(sig) = self.env.get(&name.str) {
+                    (TypedVar::Env(name.clone()), Type::Fun(sig.clone()))
                 } else {
-                    println!("undefined variable: {}", var.ident().0.as_str());
+                    println!("undefined variable: {}", name.str.as_str());
                     return Err(TypeError("undefined variable"));
                 };
                 (TypedExpr::Var(typed_var), ty)
@@ -226,29 +228,29 @@ impl<'e> Inferer<'e> {
         Ok((typed_expr, ty))
     }
 
-    fn insert_var(&mut self, var: &VarDef, ty: Type) -> Rc<LocalTypedVar> {
+    fn insert_var(&mut self, name: &Ident, ty: Type) -> Rc<LocalTypedVar> {
         let id = VarId(self.next_var_id);
         self.next_var_id += 1;
         let var = Rc::new(LocalTypedVar {
-            mutable: var.mutable,
-            ident: var.ident.clone(),
+            mutated: Cell::new(false),
+            ident: name.clone(),
             ty,
             id,
         });
-        self.scope.insert(var.ident.clone(), var.clone());
+        self.scope.insert(var.ident.str.clone(), var.clone());
         var
     }
 
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(TypedStmt, bool), TypeError> {
         Ok(match stmt {
-            Stmt::Let { var, ty, expr } => {
+            Stmt::Var { name, ty, expr } => {
                 let (expr, expr_ty) = self.infer_expr(expr)?;
                 if let Some(ty) = ty
                     && expr_ty != ty.try_into().map_err(|_| TypeError("could not convert type"))?
                 {
                     return Err(TypeError("wrong type annotation!"));
                 }
-                let var = self.insert_var(var, expr_ty);
+                let var = self.insert_var(name, expr_ty);
                 (TypedStmt::Let { var, expr }, false)
             }
             Stmt::Assign { dst, op, src } => {
@@ -256,6 +258,11 @@ impl<'e> Inferer<'e> {
                 let (src, src_ty) = self.infer_expr(src)?;
                 if dst_ty != src_ty {
                     return Err(TypeError("assignment type mismatch"));
+                }
+                match &dst {
+                    TypedExpr::Var(TypedVar::Local(var)) => var.mutated.set(true),
+                    TypedExpr::Var(TypedVar::Env(_)) => return Err(TypeError("cannot assign to global variable")),
+                    _ => (),
                 }
                 let op = match *op {
                     Some(AssignOp::Arith(op)) => {
@@ -288,13 +295,13 @@ impl<'e> Inferer<'e> {
                 if ty != self.returns {
                     return Err(TypeError("incorrect return type"));
                 }
-                (TypedStmt::Return(expr), true)
+                (TypedStmt::Return(Some(expr)), true)
             }
             Stmt::Return(None) => {
                 if Type::Unit != self.returns {
                     return Err(TypeError("incorrect return type"));
                 }
-                (TypedStmt::Return(TypedExpr::Lit(Lit::Unit)), true)
+                (TypedStmt::Return(None), true)
             }
             Stmt::If(if_) => {
                 let (if_, diverges) = self.infer_if(if_)?;

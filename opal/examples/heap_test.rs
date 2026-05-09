@@ -5,7 +5,7 @@ fn main() {
 
     let function = heap.alloc_function(&[], &[Value::Int(10)], 0);
     let array = heap.alloc_list_elements(&[Value::Int(5), Value::Int(10)]);
-    let stack = heap.alloc_stack(function).to_handle();
+    let _ = heap.alloc_stack(function).to_handle();
 
     function.set_constant(0, Value::Int(5));
     array.set(0, Value::Int(10));

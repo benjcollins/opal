@@ -10,13 +10,13 @@
 - Type error reporting. MEDIUM
 - Span information in AST nodes. MEDIUM
 - Tree sitter grammar. HARD
-- Strings
 
 # IN DEV
 
 
 # DONE
 
+- Strings
 - Garbage collection
 - Array equality
 - String interner should probably be syncable. HARD

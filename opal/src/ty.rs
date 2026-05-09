@@ -1,4 +1,7 @@
-use crate::ast::{Expr, Ident, VarUse};
+use crate::{
+    ast::{Expr, Ident},
+    intern::InternedStr,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -9,7 +12,7 @@ pub enum Type {
     Numeric(NumericType),
     List(Box<Type>),
     Fun(FunSig),
-    Generic(Ident),
+    Generic(InternedStr),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +29,7 @@ pub enum BorrowedType<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunSig {
-    pub generics: Vec<Ident>,
+    pub generics: Vec<InternedStr>,
     pub params: Vec<Type>,
     pub returns: Box<Type>,
 }
@@ -42,7 +45,7 @@ impl TryFrom<&Expr> for Type {
 
     fn try_from(expr: &Expr) -> Result<Self, Self::Error> {
         Ok(match expr {
-            Expr::Var(VarUse(Ident(ident))) => match ident.as_str() {
+            Expr::Var(Ident { str, .. }) => match str.as_str() {
                 "Int" => Type::Numeric(NumericType::Int),
                 "Float" => Type::Numeric(NumericType::Float),
                 "Bool" => Type::Bool,
@@ -67,10 +70,10 @@ impl TryFrom<&Expr> for Type {
                 })
             }
             Expr::Index(ty, param) => {
-                let Expr::Var(VarUse(Ident(name))) = ty.as_ref() else {
+                let Expr::Var(Ident { str, .. }) = ty.as_ref() else {
                     return Err(());
                 };
-                if name.as_str() != "List" {
+                if str.as_str() != "List" {
                     return Err(());
                 }
                 let param = param.as_ref().try_into()?;
@@ -82,7 +85,7 @@ impl TryFrom<&Expr> for Type {
 }
 
 impl FunSig {
-    pub fn new(generics: Vec<Ident>, params: Vec<Type>, returns: Type) -> FunSig {
+    pub fn new(generics: Vec<InternedStr>, params: Vec<Type>, returns: Type) -> FunSig {
         FunSig {
             generics,
             params,
@@ -120,7 +123,7 @@ impl<'a> From<&BorrowedType<'a>> for Type {
                 params: Vec::from_iter(params.iter().map(|ty| ty.into())),
                 returns: Box::new(returns.into()),
             }),
-            BorrowedType::Generic(name) => Type::Generic(Ident::new(name)),
+            BorrowedType::Generic(name) => Type::Generic(InternedStr::new(name)),
         }
     }
 }

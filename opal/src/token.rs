@@ -24,7 +24,7 @@ pub enum TokenKind {
     Str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Hash, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display, EnumIter)]
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Fun,
@@ -32,7 +32,6 @@ pub enum Keyword {
     True,
     False,
     Module,
-    Mut,
     Return,
     If,
     Else,
