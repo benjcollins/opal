@@ -105,12 +105,15 @@ impl<'src> Lexer<'src> {
                 }
             }
 
-            // if self.consume("\"") {
-            //     let mut string = String::new();
-            //     if self.consume("\\") {
-            //         if self.consume("\\") {}
-            //     }
-            // }
+            if self.consume("\"") {
+                let mut string = String::new();
+                while let Some(ch) = self.peek().filter(|ch| *ch != '\"') {
+                    self.advance();
+                    string.push(ch);
+                }
+                self.advance();
+                break Token::String(string);
+            }
 
             if self.consume("//") {
                 self.skip_line_comment();

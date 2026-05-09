@@ -18,6 +18,7 @@ use crate::{
     value::{Value, ValueTag},
 };
 
+pub mod bytes;
 pub mod function;
 pub mod handle;
 pub mod list;

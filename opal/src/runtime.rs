@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::RwLock};
 
 use crate::{
     ast::{Ident, Module, ModuleItem},
-    heap::{Heap, function::Function, handle::Handle, stack::StackGuard},
+    heap::{function::Function, handle::Handle, stack::StackGuard, Heap},
     infer::infer_fun,
     lower::lower_fun,
     ty::{BorrowedType, FunSig, Type},
@@ -121,7 +121,7 @@ impl<'h> Runtime<'h> {
                 heap: &heap,
             };
 
-            for _ in 0..100 {
+            for _ in 0..1000 {
                 cf = vm.execute_next_instr()?;
                 if cf.is_break() {
                     break 'outer;
