@@ -47,13 +47,13 @@ impl Heap {
             first = true;
         });
         first.then(|| Heap {
-            objects_head: AtomicPtr::null(),
+            objects_head: AtomicPtr::new(ptr::null_mut()),
         })
     }
     fn alloc<T: ObjectTrait>(&self, tag: ObjectTag, body: T, extended_data: &[T::Item]) -> &Object<T> {
         unsafe {
             let header = ObjectHeader {
-                next: AtomicPtr::null(),
+                next: AtomicPtr::new(ptr::null_mut()),
                 handle_count: AtomicU32::new(0),
                 tag,
                 marked: AtomicBool::new(false),

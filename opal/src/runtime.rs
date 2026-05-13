@@ -25,12 +25,6 @@ pub struct TypedHostFun {
 impl TypedHostFun {
     pub fn sig(&self) -> FunSig {
         FunSig {
-            generics: self
-                .generics
-                .iter()
-                .copied()
-                .map(|name| InternedStr::new(name))
-                .collect(),
             params: Vec::from_iter(self.params.iter().map(|ty| ty.into())),
             returns: Box::new((&self.returns).into()),
         }
@@ -67,16 +61,16 @@ impl<'h> Runtime<'h> {
                 ModuleItem::Fun(fun) => {
                     let params = fun
                         .params
-                        .iter()
+                        .items()
                         .map(|(_, ty)| ty.try_into().unwrap())
                         .collect::<Vec<_>>();
-                    let returns = fun
-                        .returns
-                        .as_ref()
-                        .map(|ty| ty.try_into().unwrap())
-                        .unwrap_or(Type::Unit);
-                    self.fun_sigs
-                        .insert(fun.name.str.clone(), FunSig::new(vec![], params, returns));
+                    let returns = Box::new(
+                        fun.returns
+                            .as_ref()
+                            .map(|ty| ty.try_into().unwrap())
+                            .unwrap_or(Type::Unit),
+                    );
+                    self.fun_sigs.insert(fun.name.str.clone(), FunSig { params, returns });
                 }
             }
         }

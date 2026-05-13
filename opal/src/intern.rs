@@ -3,7 +3,7 @@ use std::{
     fmt,
     ops::Deref,
     ptr::copy,
-    str,
+    slice, str,
     sync::{
         LazyLock,
         atomic::{AtomicU32, AtomicUsize, Ordering, fence},
@@ -62,7 +62,7 @@ impl InternedStr {
     }
     pub fn as_str(&self) -> &str {
         let entry = INTERNER.id_to_entry.get(&self.0).unwrap();
-        unsafe { str::from_raw_parts(entry.ptr, entry.len) }
+        unsafe { str::from_utf8_unchecked(slice::from_raw_parts(entry.ptr, entry.len)) }
     }
     pub fn id(&self) -> u32 {
         self.0
@@ -83,7 +83,7 @@ impl Drop for InternedStr {
         if entry.count.fetch_sub(1, Ordering::Release) == 0 {
             fence(Ordering::Acquire);
             let (_, entry) = INTERNER.id_to_entry.remove(&self.0).unwrap();
-            let str = unsafe { str::from_raw_parts(entry.ptr, entry.len) };
+            let str = unsafe { str::from_utf8_unchecked(slice::from_raw_parts(entry.ptr, entry.len)) };
             INTERNER.str_to_id.remove(str);
             unsafe { dealloc(entry.ptr, Layout::from_size_align_unchecked(entry.len, 1)) };
         }

@@ -1,8 +1,8 @@
 module fcf;
 
-fun map_int(input: List[Int], mapping: fun(Int) -> Int) -> List[Int] {
-    let output = [0; len(input)];
-    let i = 0;
+fun map[T](input: List[T], mapping: fun(T) -> T) -> List[T] {
+    var output = [0; len(input)];
+    var i = 0;
     while (i < len(input)) {
         output[i] := mapping(input[i]);
         i += 1;
@@ -10,19 +10,19 @@ fun map_int(input: List[Int], mapping: fun(Int) -> Int) -> List[Int] {
     return output;
 }
 
-fun filter_int(input: List[Int], filterer: fun(Int) -> Bool) -> List[Int] {
-    let temp = [0; len(input)];
-    let i = 0;
-    let j = 0;
+fun filter[T](input: List[T], cond: fun(T) -> Bool) -> List[T] {
+    var temp = [0; len(input)];
+    var i = 0;
+    var j = 0;
     while (i < len(input)) {
-        if (filterer(input[i])) {
+        if (cond(input[i])) {
             temp[j] := input[i];
             j += 1;
         }
         i += 1;
     }
-    let output = [0; j];
-    let i = 0;
+    var output = [0; j];
+    var i = 0;
     while (i < j) {
         output[i] := temp[i];
         i += 1;
@@ -39,13 +39,13 @@ fun double(n: Int) -> Int {
 }
 
 fun test_double() {
-    let input = [1, 2, 3];
-    let output = map_int(input, double);
+    var input = [1, 2, 3];
+    var output = map(input, double);
     assert(output == [2, 4, 6]);
 }
 
 fun test_filter() {
-    let input = [1, 2, 3, 4, 5, 6];
-    let output = filter_int(input, is_even);
+    var input = [1, 2, 3, 4, 5, 6];
+    var output = filter(input, is_even);
     assert(output == [2, 4, 6]);
 }

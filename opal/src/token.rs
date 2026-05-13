@@ -28,7 +28,7 @@ pub enum TokenKind {
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Fun,
-    Let,
+    Var,
     True,
     False,
     Module,

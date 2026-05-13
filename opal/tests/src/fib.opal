@@ -11,11 +11,11 @@ fun fib_rec(n: Int) -> Int {
 }
 
 fun fib_loop(n: Int) -> Int {
-    let i = 0;
-    let a = 1;
-    let b = 0;
+    var i = 0;
+    var a = 1;
+    var b = 0;
     while (i < n) {
-        let t = a;
+        var t = a;
         a += b;
         b := t;
         i += 1;

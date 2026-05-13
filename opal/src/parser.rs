@@ -1,11 +1,11 @@
-use std::{collections::HashMap, fmt, mem::take, path::Path};
+use std::{collections::HashMap, fmt, mem::take, path::Path, vec};
 
 use colored::Colorize;
 
 use crate::{
     ast::{
-        ArithOp, AssignOp, BitwiseOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Ident, If, InfixOp, Lit, LogicalOp,
-        Module, ModuleItem, PrefixOp, Stmt,
+        ArithOp, AssignOp, BitwiseOp, Block, CompOp, Else, EqualityOp, Expr, Fun, Generics, Ident, If, InfixOp, Lit,
+        LogicalOp, Module, ModuleItem, PrefixOp, Stmt,
     },
     lexer::{Lexer, Span},
     token::{self, Float, Int, Keyword, Str, Symbol, Token, TokenKind, TokenMatcher},
@@ -116,9 +116,13 @@ const PREFIX_OPS: &[(Symbol, Prec, PrefixOp)] = &[
     (Symbol::Bang, 11, PrefixOp::LogicalNot),
 ];
 
-const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr) -> Result<Expr, Recovered>)] = &[
-    (Symbol::OpenParen, 12, |self_, expr| self_.parse_expr_call(expr)),
-    (Symbol::OpenBracket, 12, |self_, expr| self_.parse_expr_index(expr)),
+const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr, Span) -> Result<Expr, Recovered>)] = &[
+    (Symbol::OpenParen, 12, |self_, expr, open_paren| {
+        self_.parse_expr_call(expr, open_paren)
+    }),
+    (Symbol::OpenBracket, 12, |self_, expr, open_bracket| {
+        self_.parse_expr_index(expr, open_bracket)
+    }),
 ];
 
 const ASSIGN_OPS: &[(Option<AssignOp>, Symbol)] = &[
@@ -138,6 +142,15 @@ const ASSIGN_OPS: &[(Option<AssignOp>, Symbol)] = &[
         Symbol::DoubleGreaterEquals,
     ),
 ];
+
+#[derive(Debug, Clone)]
+pub struct Separated<T>(Vec<(T, Option<Span>)>);
+
+impl<T> Separated<T> {
+    pub fn items(&self) -> impl Iterator<Item = &T> {
+        self.0.iter().map(|(item, _)| item)
+    }
+}
 
 impl<'s, 'p> Parser<'s, 'p> {
     pub fn new(source: &'s str, path: Option<&'p Path>) -> Parser<'s, 'p> {
@@ -226,34 +239,55 @@ impl<'s, 'p> Parser<'s, 'p> {
         if let Some((value, span)) = self.consume(Str) {
             return Ok(Expr::Lit(Lit::Str { value, span }));
         }
-        if self.advance(Keyword::Fun) {
-            self.expect(Symbol::OpenParen)?;
-            let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |_self| _self.parse_expr(0))?;
-            let returns = if self.advance(Symbol::RightArrow) {
-                Some(Box::new(self.parse_expr(0)?))
+        if let Some((_, fun)) = self.consume(Keyword::Fun) {
+            let (_, open_paren) = self.expect(Symbol::OpenParen)?;
+            let (params, close_paren) =
+                self.parse_separated(Symbol::Comma, Symbol::CloseParen, |_self| _self.parse_expr(0))?;
+            let returns = if let Some((_, arrow)) = self.consume(Symbol::RightArrow) {
+                Some((arrow, Box::new(self.parse_expr(0)?)))
             } else {
                 None
             };
-            return Ok(Expr::FunType(params, returns));
+            return Ok(Expr::FunType {
+                fun,
+                open_paren,
+                params,
+                close_paren,
+                returns,
+            });
         }
-        if self.advance(Symbol::OpenBracket) {
-            if self.advance(Symbol::CloseBracket) {
-                return Ok(Expr::ArrayElements(vec![]));
+        if let Some((_, open_bracket)) = self.consume(Symbol::OpenBracket) {
+            if let Some((_, close_bracket)) = self.consume(Symbol::CloseBracket) {
+                return Ok(Expr::ListElements {
+                    open_bracket,
+                    elements: Separated(vec![]),
+                    close_bracket,
+                });
             }
             let first = self.parse_expr(0)?;
-            if self.advance(Symbol::Semicolon) {
+            if let Some((_, semicolon)) = self.consume(Symbol::Semicolon) {
                 let len = self.parse_expr(0)?;
-                self.expect(Symbol::CloseBracket)?;
-                return Ok(Expr::ArrayDefaultLength(Box::new(first), Box::new(len)));
-            } else if self.advance(Symbol::Comma) {
-                let mut elements = vec![first];
-                self.parse_separated_into(
+                let (_, close_bracket) = self.expect(Symbol::CloseBracket)?;
+                return Ok(Expr::ListDefaultLength {
+                    open_bracket,
+                    default: Box::new(first),
+                    semicolon,
+                    length: Box::new(len),
+                    close_bracket,
+                });
+            } else if let Some((_, comma)) = self.consume(Symbol::Comma) {
+                let mut elements = vec![(first, Some(comma))];
+                let close_bracket = self.parse_separated_into(
                     Symbol::Comma,
                     Symbol::CloseBracket,
                     |self_| self_.parse_expr(0),
                     &mut elements,
                 )?;
-                return Ok(Expr::ArrayElements(elements));
+                return Ok(Expr::ListElements {
+                    open_bracket,
+                    elements: Separated(elements),
+                    close_bracket,
+                });
             } else {
                 return Err(self.error());
             }
@@ -266,8 +300,12 @@ impl<'s, 'p> Parser<'s, 'p> {
                 }));
             }
             let expr = self.parse_expr(0)?;
-            self.expect(Symbol::CloseParen)?;
-            return Ok(Expr::Paren(Box::new(expr)));
+            let (_, close_paren) = self.expect(Symbol::CloseParen)?;
+            return Ok(Expr::Paren {
+                open_paren,
+                expr: Box::new(expr),
+                close_paren,
+            });
         }
         if let Some((_, span)) = self.consume(Keyword::True) {
             return Ok(Expr::Lit(Lit::Bool { value: true, span }));
@@ -280,21 +318,32 @@ impl<'s, 'p> Parser<'s, 'p> {
         }
         Err(self.error())
     }
-    pub fn parse_expr_call(&mut self, expr: Expr) -> Result<Expr, Recovered> {
-        let args = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
-        Ok(Expr::Call(Box::new(expr), args))
+    pub fn parse_expr_call(&mut self, expr: Expr, open_paren: Span) -> Result<Expr, Recovered> {
+        let (args, close_paren) =
+            self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| self_.parse_expr(0))?;
+        Ok(Expr::Call {
+            fun: Box::new(expr),
+            open_paren,
+            args,
+            close_paren,
+        })
     }
-    pub fn parse_expr_index(&mut self, expr: Expr) -> Result<Expr, Recovered> {
+    pub fn parse_expr_index(&mut self, expr: Expr, open_bracket: Span) -> Result<Expr, Recovered> {
         let index = self.parse_expr(0)?;
-        self.expect(Symbol::CloseBracket)?;
-        Ok(Expr::Index(Box::new(expr), Box::new(index)))
+        let (_, close_bracket) = self.expect(Symbol::CloseBracket)?;
+        Ok(Expr::Index {
+            expr: Box::new(expr),
+            open_bracket,
+            index: Box::new(index),
+            close_bracket,
+        })
     }
     pub fn parse_expr(&mut self, prec: Prec) -> Result<Expr, Recovered> {
         let mut left = None;
         for (symbol, op_prec, op) in PREFIX_OPS.iter().copied() {
-            if self.advance(symbol) {
-                let expr = self.parse_expr(op_prec)?;
-                left = Some(Expr::Prefix(op, Box::new(expr)));
+            if let Some((_, op_span)) = self.consume(symbol) {
+                let expr = Box::new(self.parse_expr(op_prec)?);
+                left = Some(Expr::Prefix { op, op_span, expr });
                 break;
             }
         }
@@ -305,16 +354,21 @@ impl<'s, 'p> Parser<'s, 'p> {
         };
         'outer: loop {
             for (symbol, op_prec, parse_fn) in POSTFIX_OPS {
-                if *op_prec > prec && self.advance(*symbol) {
-                    left = parse_fn(self, left)?;
+                if *op_prec > prec
+                    && let Some((_, op_span)) = self.consume(*symbol)
+                {
+                    left = parse_fn(self, left, op_span)?;
                 }
             }
             for (symbol, infix_op, op_prec) in INFIX_OPS {
-                if *op_prec > prec && self.advance(*symbol) {
+                if *op_prec > prec
+                    && let Some((_, op_span)) = self.consume(*symbol)
+                {
                     let right = self.parse_expr(*op_prec)?;
                     left = Expr::Infix {
                         left: Box::new(left),
                         op: *infix_op,
+                        op_span,
                         right: Box::new(right),
                     };
                     continue 'outer;
@@ -341,7 +395,7 @@ impl<'s, 'p> Parser<'s, 'p> {
         Ok(If { cond, if_block, else_ })
     }
     pub fn parse_stmt(&mut self) -> Result<Stmt, Recovered> {
-        if self.advance(Keyword::Let) {
+        if self.advance(Keyword::Var) {
             let (str, span) = self.expect(token::Ident)?;
             let name = Ident { str, span };
             let ty = if self.advance(Symbol::Colon) {
@@ -413,33 +467,50 @@ impl<'s, 'p> Parser<'s, 'p> {
         sep: SEP,
         term: TERM,
         parse_fn: impl Fn(&mut Parser) -> Result<T, Recovered>,
-        vec: &mut Vec<T>,
-    ) -> Result<(), Recovered> {
-        while !self.advance(term.clone()) {
-            vec.push(parse_fn(self)?);
-            if !self.advance(sep.clone()) {
-                self.expect(term)?;
-                break;
+        items: &mut Vec<(T, Option<Span>)>,
+    ) -> Result<Span, Recovered> {
+        Ok(loop {
+            if let Some((_, term)) = self.consume(term.clone()) {
+                break term;
             }
-        }
-        Ok(())
+            let item = parse_fn(self)?;
+            let sep = self.consume(sep.clone()).map(|(_, sep)| sep);
+            items.push((item, sep));
+            if sep.is_none() {
+                let (_, term) = self.expect(term)?;
+                break term;
+            }
+        })
     }
     pub fn parse_separated<T, SEP: TokenMatcher, TERM: TokenMatcher>(
         &mut self,
         sep: SEP,
         term: TERM,
         parse_fn: impl Fn(&mut Parser) -> Result<T, Recovered>,
-    ) -> Result<Vec<T>, Recovered> {
-        let mut vec = vec![];
-        self.parse_separated_into(sep, term, parse_fn, &mut vec)?;
-        Ok(vec)
+    ) -> Result<(Separated<T>, Span), Recovered> {
+        let mut items = vec![];
+        let term = self.parse_separated_into(sep, term, parse_fn, &mut items)?;
+        Ok((Separated(items), term))
     }
     pub fn parse_module_item(&mut self) -> Result<ModuleItem, Recovered> {
         if self.advance(Keyword::Fun) {
             let (str, span) = self.expect(token::Ident)?;
             let name = Ident { str, span };
+            let generics = if let Some((_, open_bracket)) = self.consume(Symbol::OpenBracket) {
+                let (args, close_bracket) = self.parse_separated(Symbol::Comma, Symbol::CloseBracket, |self_| {
+                    let (str, span) = self_.expect(token::Ident)?;
+                    Ok(Ident { str, span })
+                })?;
+                Some(Generics {
+                    open_bracket,
+                    args,
+                    close_bracket,
+                })
+            } else {
+                None
+            };
             self.expect(Symbol::OpenParen)?;
-            let params = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
+            let (params, _) = self.parse_separated(Symbol::Comma, Symbol::CloseParen, |self_| {
                 let (str, span) = self_.expect(token::Ident)?;
                 let name = Ident { str, span };
                 self_.expect(Symbol::Colon)?;
@@ -454,6 +525,7 @@ impl<'s, 'p> Parser<'s, 'p> {
             let block = self.parse_block()?;
             Ok(ModuleItem::Fun(Fun {
                 name,
+                generics,
                 params,
                 returns,
                 block,

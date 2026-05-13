@@ -1,7 +1,7 @@
 module count_ones;
 
 fun count_ones(n: Int) -> Int {
-    let count = 0;
+    var count = 0;
     while (n != 0) {
         if ((n & 1) != 0) {
             count += 1;

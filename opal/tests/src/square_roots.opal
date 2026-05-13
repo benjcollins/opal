@@ -4,8 +4,8 @@ module square_roots;
 
 // calculate square root
 fun approx_square_root(n: Float, c: Int) -> Float {
-    let x = n / 2.0;
-    let i = 0;
+    var x = n / 2.0;
+    var i = 0;
     while (i < c) {
         x := (x + n / x) / 2.0;
         i += 1;
@@ -22,15 +22,15 @@ fun abs(n: Float) -> Float {
 }
 
 fun test_approx_square_root_123() {
-    let n = 123.0;
-    let n_approx = approx_square_root(n * n, 10);
-    let error = abs(n - n_approx);
+    var n = 123.0;
+    var n_approx = approx_square_root(n * n, 10);
+    var error = abs(n - n_approx);
     assert(error < 0.001);
 }
 
 fun test_approx_square_root_738() {
-    let n = 738.0;
-    let n_approx = approx_square_root(n * n, 15);
-    let error = abs(n - n_approx);
+    var n = 738.0;
+    var n_approx = approx_square_root(n * n, 15);
+    var error = abs(n - n_approx);
     assert(error < 0.001);
 }

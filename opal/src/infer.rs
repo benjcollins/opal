@@ -51,7 +51,7 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<InternedStr, FunSig>) -> Result<TypedF
     };
     inferer.scope.enter_block();
     let mut params = vec![];
-    for (var, ty) in &fun.params {
+    for (var, ty) in fun.params.items() {
         let ty = ty.try_into().map_err(|_| TypeError("could not convert type"))?;
         params.push(inferer.insert_var(var, ty));
     }
@@ -68,24 +68,21 @@ pub fn infer_fun(fun: &Fun, env: &HashMap<InternedStr, FunSig>) -> Result<TypedF
     })
 }
 
-fn instantiate(map: &mut HashMap<InternedStr, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
+fn instantiate_param(map: &mut HashMap<InternedStr, Type>, arg: &Type, param: &Type) -> Result<(), ()> {
     match (arg, param) {
         (Type::Bool, Type::Bool) | (Type::Unit, Type::Unit) | (Type::Void, Type::Void) | (Type::Str, Type::Str) => {
             Ok(())
         }
         (Type::Numeric(a), Type::Numeric(b)) if a == b => Ok(()),
-        (Type::List(a), Type::List(b)) => instantiate(map, a, b),
+        (Type::List(a), Type::List(b)) => instantiate_param(map, a, b),
         (Type::Fun(a), Type::Fun(b)) => {
-            if !a.generics.is_empty() || !b.generics.is_empty() {
-                return Err(());
-            }
             if a.params.len() != b.params.len() {
                 return Err(());
             }
             for (a, b) in a.params.iter().zip(&b.params) {
-                instantiate(map, a, b)?;
+                instantiate_param(map, a, b)?;
             }
-            instantiate(map, &a.returns, &b.returns)
+            instantiate_param(map, &a.returns, &b.returns)
         }
         (ty, Type::Generic(name)) => match map.entry(name.clone()) {
             Entry::Occupied(entry) if entry.get() == ty => Ok(()),
@@ -99,6 +96,22 @@ fn instantiate(map: &mut HashMap<InternedStr, Type>, arg: &Type, param: &Type) -
     }
 }
 
+fn instantiate_return(map: &HashMap<InternedStr, Type>, ty: &Type) -> Result<Type, ()> {
+    match ty {
+        Type::Bool | Type::Unit | Type::Void | Type::Str | Type::Numeric(_) => Ok(ty.clone()),
+        Type::List(ty) => Ok(Type::List(Box::new(instantiate_return(map, ty)?))),
+        Type::Fun(sig) => Ok(Type::Fun(FunSig {
+            params: sig
+                .params
+                .iter()
+                .map(|ty| instantiate_return(map, ty))
+                .collect::<Result<Vec<_>, _>>()?,
+            returns: Box::new(instantiate_return(map, ty)?),
+        })),
+        Type::Generic(str) => Ok(map.get(str).ok_or(())?.clone()),
+    }
+}
+
 impl<'e> Inferer<'e> {
     fn infer_expr(&mut self, expr: &Expr) -> Result<(TypedExpr, Type), TypeError> {
         let (typed_expr, ty) = match expr {
@@ -107,10 +120,10 @@ impl<'e> Inferer<'e> {
                 let ty = infer_lit(lit);
                 (typed_expr, ty)
             }
-            Expr::ArrayElements(elements) => {
+            Expr::ListElements { elements, .. } => {
                 let mut typed_elements = vec![];
                 let mut element_ty = None;
-                for element in elements {
+                for element in elements.items() {
                     let (typed_element, ty) = self.infer_expr(element)?;
                     element_ty = match &mut element_ty {
                         Some(array_ty) if *array_ty != ty => Err(TypeError("array elements must have the same type"))?,
@@ -121,7 +134,7 @@ impl<'e> Inferer<'e> {
                 let typed_expr = TypedExpr::ArrayElements(typed_elements);
                 (typed_expr, Type::List(Box::new(element_ty.unwrap_or(Type::Void))))
             }
-            Expr::ArrayDefaultLength(default, length) => {
+            Expr::ListDefaultLength { default, length, .. } => {
                 let (typed_default, default_ty) = self.infer_expr(default)?;
                 let (typed_length, length_ty) = self.infer_expr(length)?;
                 if length_ty != Type::Numeric(NumericType::Int) {
@@ -131,14 +144,14 @@ impl<'e> Inferer<'e> {
                 let ty = Type::List(Box::new(default_ty));
                 (typed_expr, ty)
             }
-            Expr::Call(fun, args) => {
+            Expr::Call { fun, args, .. } => {
                 let (typed_fun, fun_ty) = self.infer_expr(fun)?;
                 let Type::Fun(sig) = fun_ty else {
                     return Err(TypeError("trying to call non function type"));
                 };
                 let mut typed_args = vec![];
                 let mut arg_tys = vec![];
-                for arg in args {
+                for arg in args.items() {
                     let (typed_arg, arg_ty) = self.infer_expr(arg)?;
                     typed_args.push(typed_arg);
                     arg_tys.push(arg_ty);
@@ -148,15 +161,18 @@ impl<'e> Inferer<'e> {
                 }
                 let mut map = HashMap::new();
                 for (arg, param) in arg_tys.iter().zip(&sig.params) {
-                    instantiate(&mut map, arg, param).map_err(|_| TypeError("could not instantiate function"))?;
+                    instantiate_param(&mut map, arg, param)
+                        .map_err(|_| TypeError("could not instantiate parameter"))?;
                 }
                 let expr = TypedExpr::Call {
                     fun: Box::new(typed_fun),
                     args: typed_args,
                 };
-                (expr, sig.returns.as_ref().clone())
+                let return_ty = instantiate_return(&map, sig.returns.as_ref())
+                    .map_err(|_| TypeError("could not instantiate argument"))?;
+                (expr, return_ty)
             }
-            Expr::Paren(node) => self.infer_expr(node)?,
+            Expr::Paren { expr, .. } => self.infer_expr(expr)?,
             Expr::Var(name) => {
                 let (typed_var, ty) = if let Some(var) = self.scope.get(&name.str) {
                     (TypedVar::Local(var.clone()), var.ty.clone())
@@ -168,7 +184,7 @@ impl<'e> Inferer<'e> {
                 };
                 (TypedExpr::Var(typed_var), ty)
             }
-            Expr::Infix { left, op, right } => {
+            Expr::Infix { left, op, right, .. } => {
                 let (left_expr, left_ty) = self.infer_expr(left)?;
                 let (right_expr, right_ty) = self.infer_expr(right)?;
 
@@ -197,19 +213,19 @@ impl<'e> Inferer<'e> {
 
                 (typed_expr, ty)
             }
-            Expr::Index(array, index) => {
-                let (typed_array, array_ty) = self.infer_expr(array)?;
-                let Type::List(element_ty) = array_ty else {
+            Expr::Index { expr, index, .. } => {
+                let (typed_expr, expr_ty) = self.infer_expr(expr)?;
+                let Type::List(element_ty) = expr_ty else {
                     return Err(TypeError("cannot index non array type"));
                 };
                 let (typed_index, index_ty) = self.infer_expr(index)?;
                 if index_ty != Type::Numeric(NumericType::Int) {
                     return Err(TypeError("index type must be an Int"));
                 }
-                let typed_expr = TypedExpr::Index(Box::new(typed_array), Box::new(typed_index));
+                let typed_expr = TypedExpr::Index(Box::new(typed_expr), Box::new(typed_index));
                 (typed_expr, *element_ty)
             }
-            Expr::Prefix(op, expr) => {
+            Expr::Prefix { op, expr, .. } => {
                 let (typed_expr, expr_ty) = self.infer_expr(expr)?;
                 let (typed_op, ty) = match (op, expr_ty) {
                     (PrefixOp::Negative, Type::Numeric(ty)) => (TypedPrefixOp::Negative(ty), Type::Numeric(ty)),
@@ -218,11 +234,11 @@ impl<'e> Inferer<'e> {
                     (PrefixOp::BitwiseNot, Type::Numeric(NumericType::Int)) => {
                         (TypedPrefixOp::BitwiseNot, Type::Numeric(NumericType::Int))
                     }
-                    _ => return Err(TypeError("invalid prefix operatortypes!")),
+                    _ => return Err(TypeError("invalid prefix operator types!")),
                 };
                 (TypedExpr::Prefix(typed_op, Box::new(typed_expr)), ty)
             }
-            Expr::FunType(_, _) => panic!(),
+            Expr::FunType { .. } => panic!(),
         };
 
         Ok((typed_expr, ty))
@@ -256,6 +272,8 @@ impl<'e> Inferer<'e> {
             Stmt::Assign { dst, op, src } => {
                 let (dst, dst_ty) = self.infer_expr(dst)?;
                 let (src, src_ty) = self.infer_expr(src)?;
+                println!("{:?}", dst_ty);
+                println!("{:?}", src_ty);
                 if dst_ty != src_ty {
                     return Err(TypeError("assignment type mismatch"));
                 }

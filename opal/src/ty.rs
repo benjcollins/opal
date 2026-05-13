@@ -29,7 +29,6 @@ pub enum BorrowedType<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunSig {
-    pub generics: Vec<InternedStr>,
     pub params: Vec<Type>,
     pub returns: Box<Type>,
 }
@@ -51,46 +50,32 @@ impl TryFrom<&Expr> for Type {
                 "Bool" => Type::Bool,
                 "Unit" => Type::Unit,
                 "Void" => Type::Void,
-                _ => return Err(()),
+                _ => Type::Generic(str.clone()),
             },
-            Expr::FunType(params, returns) => {
+            Expr::FunType { params, returns, .. } => {
                 let params = params
-                    .iter()
+                    .items()
                     .map(|param| param.try_into())
                     .collect::<Result<Vec<Type>, _>>()?;
-                let returns = if let Some(returns) = returns {
+                let returns = if let Some((_, returns)) = returns {
                     Box::new(returns.as_ref().try_into()?)
                 } else {
                     Box::new(Type::Unit)
                 };
-                Type::Fun(FunSig {
-                    generics: vec![],
-                    params,
-                    returns,
-                })
+                Type::Fun(FunSig { params, returns })
             }
-            Expr::Index(ty, param) => {
-                let Expr::Var(Ident { str, .. }) = ty.as_ref() else {
+            Expr::Index { expr, index, .. } => {
+                let Expr::Var(Ident { str, .. }) = expr.as_ref() else {
                     return Err(());
                 };
                 if str.as_str() != "List" {
                     return Err(());
                 }
-                let param = param.as_ref().try_into()?;
+                let param = index.as_ref().try_into()?;
                 Type::List(Box::new(param))
             }
             _ => return Err(()),
         })
-    }
-}
-
-impl FunSig {
-    pub fn new(generics: Vec<InternedStr>, params: Vec<Type>, returns: Type) -> FunSig {
-        FunSig {
-            generics,
-            params,
-            returns: Box::new(returns),
-        }
     }
 }
 
@@ -119,7 +104,6 @@ impl<'a> From<&BorrowedType<'a>> for Type {
             BorrowedType::Str => Type::Str,
             BorrowedType::Array(ty) => Type::List(Box::new(ty.into())),
             BorrowedType::Fun(params, returns) => Type::Fun(FunSig {
-                generics: vec![],
                 params: Vec::from_iter(params.iter().map(|ty| ty.into())),
                 returns: Box::new(returns.into()),
             }),

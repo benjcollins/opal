@@ -96,25 +96,25 @@ fun test_logical_op_invert() {
     while (false && false) { fail(); }
     while (false || false) { fail(); }
 
-    let x = true;
+    var x = true;
     while (x && x) { x := false; }
     assert(x == false);
 
-    let x = true;
+    var x = true;
     while (x || x) { x := false; }
     assert(x == false);
 
-    let x = true;
+    var x = true;
     while (x || false) { x := false; }
     assert(x == false);
 
-    let x = true;
+    var x = true;
     while (false || x) { x := false; }
     assert(x == false);
 }
 
 fun test_branch() {
-    let b = false;
+    var b = false;
     if (b) {
         fail();
     }

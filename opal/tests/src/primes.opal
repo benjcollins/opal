@@ -1,10 +1,10 @@
 module primes;
 
 fun generate_sieve(size: Int) -> List[Bool] {
-    let sieve = [false; size];
-    let i = 2;
+    var sieve = [false; size];
+    var i = 2;
     while (i < len(sieve)) {
-        let j = i * 2;
+        var j = i * 2;
         while (j < len(sieve)) {
             sieve[j] := true;
             j += i;
@@ -15,8 +15,8 @@ fun generate_sieve(size: Int) -> List[Bool] {
 }
 
 fun count_primes(sieve: List[Bool]) -> Int {
-    let i = 1;
-    let prime_count = 0;
+    var i = 1;
+    var prime_count = 0;
     while (i < len(sieve)) {
         if (!sieve[i]) {
             prime_count += 1;
@@ -27,10 +27,10 @@ fun count_primes(sieve: List[Bool]) -> Int {
 }
 
 fun collect_primes(sieve: List[Bool]) -> List[Int] {
-    let prime_count = count_primes(sieve);
-    let primes = [0; prime_count];
-    let i = 1;
-    let j = 0;
+    var prime_count = count_primes(sieve);
+    var primes = [0; prime_count];
+    var i = 1;
+    var j = 0;
     while (i < len(sieve)) {
         if (!sieve[i]) {
             primes[j] := i;
@@ -42,11 +42,11 @@ fun collect_primes(sieve: List[Bool]) -> List[Int] {
 }
 
 fun primes(n: Int) -> List[Int] {
-    let sieve = generate_sieve(n);
+    var sieve = generate_sieve(n);
     return collect_primes(sieve);
 }
 
 fun test_primes_10() {
-    let primes = primes(10);
+    var primes = primes(10);
     assert(primes == [1, 2, 3, 5, 7]);
 }

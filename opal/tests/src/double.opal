@@ -1,7 +1,7 @@
 module double;
 
 fun test_double() {
-    let list = [1, 2, 3];
+    var list = [1, 2, 3];
 
     double(list);
 
@@ -9,7 +9,7 @@ fun test_double() {
 }
 
 fun double(list: List[Int]) {
-    let i = 0;
+    var i = 0;
     while (i < len(list)) {
         list[i] *= 2;
         i += 1;

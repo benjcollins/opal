@@ -1,4 +1,4 @@
-use crate::{intern::InternedStr, lexer::Span};
+use crate::{intern::InternedStr, lexer::Span, parser::Separated};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident {
@@ -18,17 +18,52 @@ pub enum Lit {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Lit(Lit),
-    Call(Box<Expr>, Vec<Expr>),
-    Paren(Box<Expr>),
+    Call {
+        fun: Box<Expr>,
+        open_paren: Span,
+        args: Separated<Expr>,
+        close_paren: Span,
+    },
+    Paren {
+        open_paren: Span,
+        expr: Box<Expr>,
+        close_paren: Span,
+    },
     Var(Ident),
-    ArrayElements(Vec<Expr>),
-    ArrayDefaultLength(Box<Expr>, Box<Expr>),
-    Index(Box<Expr>, Box<Expr>),
-    Prefix(PrefixOp, Box<Expr>),
-    FunType(Vec<Expr>, Option<Box<Expr>>),
+    ListElements {
+        open_bracket: Span,
+        elements: Separated<Expr>,
+        close_bracket: Span,
+    },
+    ListDefaultLength {
+        open_bracket: Span,
+        default: Box<Expr>,
+        semicolon: Span,
+        length: Box<Expr>,
+        close_bracket: Span,
+    },
+    Index {
+        expr: Box<Expr>,
+        open_bracket: Span,
+        index: Box<Expr>,
+        close_bracket: Span,
+    },
+    Prefix {
+        op: PrefixOp,
+        op_span: Span,
+        expr: Box<Expr>,
+    },
+    FunType {
+        fun: Span,
+        open_paren: Span,
+        params: Separated<Expr>,
+        close_paren: Span,
+        returns: Option<(Span, Box<Expr>)>,
+    },
     Infix {
         left: Box<Expr>,
         op: InfixOp,
+        op_span: Span,
         right: Box<Expr>,
     },
 }
@@ -126,9 +161,17 @@ pub struct Block {
 }
 
 #[derive(Debug)]
+pub struct Generics {
+    pub open_bracket: Span,
+    pub args: Separated<Ident>,
+    pub close_bracket: Span,
+}
+
+#[derive(Debug)]
 pub struct Fun {
     pub name: Ident,
-    pub params: Vec<(Ident, Expr)>,
+    pub generics: Option<Generics>,
+    pub params: Separated<(Ident, Expr)>,
     pub returns: Option<Expr>,
     pub block: Block,
 }
