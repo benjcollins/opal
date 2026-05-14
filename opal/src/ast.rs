@@ -127,18 +127,35 @@ pub enum LogicalOp {
 pub enum AssignOp {
     Bitwise(BitwiseOp),
     Arith(ArithOp),
+    Assign,
 }
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Var { name: Ident, ty: Option<Expr>, expr: Expr },
-    Assign { dst: Expr, op: Option<AssignOp>, src: Expr },
+    Var {
+        var: Span,
+        name: Ident,
+        ty: Option<(Span, Expr)>,
+        equals: Span,
+        expr: Expr,
+        semicolon: Span,
+    },
+    Assign {
+        dst: Expr,
+        op: AssignOp,
+        op_span: Span,
+        src: Expr,
+        semicolon: Span,
+    },
     Break,
     Continue,
     Return(Option<Expr>),
     Expr(Expr),
     If(If),
-    While { cond: Expr, block: Block },
+    While {
+        cond: Expr,
+        block: Block,
+    },
 }
 
 #[derive(Debug, Clone)]

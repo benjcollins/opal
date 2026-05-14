@@ -259,9 +259,9 @@ impl<'e> Inferer<'e> {
 
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(TypedStmt, bool), TypeError> {
         Ok(match stmt {
-            Stmt::Var { name, ty, expr } => {
+            Stmt::Var { name, ty, expr, .. } => {
                 let (expr, expr_ty) = self.infer_expr(expr)?;
-                if let Some(ty) = ty
+                if let Some((_, ty)) = ty
                     && expr_ty != ty.try_into().map_err(|_| TypeError("could not convert type"))?
                 {
                     return Err(TypeError("wrong type annotation!"));
@@ -269,11 +269,9 @@ impl<'e> Inferer<'e> {
                 let var = self.insert_var(name, expr_ty);
                 (TypedStmt::Let { var, expr }, false)
             }
-            Stmt::Assign { dst, op, src } => {
+            Stmt::Assign { dst, op, src, .. } => {
                 let (dst, dst_ty) = self.infer_expr(dst)?;
                 let (src, src_ty) = self.infer_expr(src)?;
-                println!("{:?}", dst_ty);
-                println!("{:?}", src_ty);
                 if dst_ty != src_ty {
                     return Err(TypeError("assignment type mismatch"));
                 }
@@ -283,19 +281,19 @@ impl<'e> Inferer<'e> {
                     _ => (),
                 }
                 let op = match *op {
-                    Some(AssignOp::Arith(op)) => {
+                    AssignOp::Arith(op) => {
                         let ty = dst_ty
                             .as_numeric_type()
                             .ok_or(TypeError("assign arith type mismatch"))?;
                         Some(TypedAssignOp::Arith(op, ty))
                     }
-                    Some(AssignOp::Bitwise(op)) => {
+                    AssignOp::Bitwise(op) => {
                         if dst_ty != Type::Numeric(NumericType::Int) {
                             return Err(TypeError("assign bitwise type mismatch"))?;
                         }
                         Some(TypedAssignOp::Bitwise(op))
                     }
-                    None => None,
+                    AssignOp::Assign => None,
                 };
                 (TypedStmt::Assign { dst, op, src }, false)
             }

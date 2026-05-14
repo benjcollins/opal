@@ -125,22 +125,19 @@ const POSTFIX_OPS: &[(Symbol, Prec, fn(&mut Parser, Expr, Span) -> Result<Expr, 
     }),
 ];
 
-const ASSIGN_OPS: &[(Option<AssignOp>, Symbol)] = &[
-    (None, Symbol::ColonEquals),
-    (Some(AssignOp::Arith(ArithOp::Add)), Symbol::PlusEquals),
-    (Some(AssignOp::Arith(ArithOp::Subtract)), Symbol::MinusEquals),
-    (Some(AssignOp::Arith(ArithOp::Multiply)), Symbol::StarEquals),
-    (Some(AssignOp::Arith(ArithOp::Divide)), Symbol::SlashEquals),
-    (Some(AssignOp::Arith(ArithOp::Modulus)), Symbol::PercentEquals),
+const ASSIGN_OPS: &[(AssignOp, Symbol)] = &[
+    (AssignOp::Assign, Symbol::ColonEquals),
+    (AssignOp::Arith(ArithOp::Add), Symbol::PlusEquals),
+    (AssignOp::Arith(ArithOp::Subtract), Symbol::MinusEquals),
+    (AssignOp::Arith(ArithOp::Multiply), Symbol::StarEquals),
+    (AssignOp::Arith(ArithOp::Divide), Symbol::SlashEquals),
+    (AssignOp::Arith(ArithOp::Modulus), Symbol::PercentEquals),
     //
-    (Some(AssignOp::Bitwise(BitwiseOp::And)), Symbol::AmpersandEquals),
-    (Some(AssignOp::Bitwise(BitwiseOp::Or)), Symbol::PipeEquals),
-    (Some(AssignOp::Bitwise(BitwiseOp::XOr)), Symbol::CaretEquals),
-    (Some(AssignOp::Bitwise(BitwiseOp::ShiftLeft)), Symbol::DoubleLessEquals),
-    (
-        Some(AssignOp::Bitwise(BitwiseOp::ShiftRight)),
-        Symbol::DoubleGreaterEquals,
-    ),
+    (AssignOp::Bitwise(BitwiseOp::And), Symbol::AmpersandEquals),
+    (AssignOp::Bitwise(BitwiseOp::Or), Symbol::PipeEquals),
+    (AssignOp::Bitwise(BitwiseOp::XOr), Symbol::CaretEquals),
+    (AssignOp::Bitwise(BitwiseOp::ShiftLeft), Symbol::DoubleLessEquals),
+    (AssignOp::Bitwise(BitwiseOp::ShiftRight), Symbol::DoubleGreaterEquals),
 ];
 
 #[derive(Debug, Clone)]
@@ -395,18 +392,25 @@ impl<'s, 'p> Parser<'s, 'p> {
         Ok(If { cond, if_block, else_ })
     }
     pub fn parse_stmt(&mut self) -> Result<Stmt, Recovered> {
-        if self.advance(Keyword::Var) {
+        if let Some((_, var)) = self.consume(Keyword::Var) {
             let (str, span) = self.expect(token::Ident)?;
             let name = Ident { str, span };
-            let ty = if self.advance(Symbol::Colon) {
-                Some(self.parse_expr(0)?)
+            let ty = if let Some((_, colon)) = self.consume(Symbol::Colon) {
+                Some((colon, self.parse_expr(0)?))
             } else {
                 None
             };
-            self.expect(Symbol::Equals)?;
+            let (_, equals) = self.expect(Symbol::Equals)?;
             let expr = self.parse_expr(0)?;
-            self.expect(Symbol::Semicolon)?;
-            return Ok(Stmt::Var { name, ty, expr });
+            let (_, semicolon) = self.expect(Symbol::Semicolon)?;
+            return Ok(Stmt::Var {
+                var,
+                name,
+                ty,
+                equals,
+                expr,
+                semicolon,
+            });
         }
         if self.advance(Keyword::Return) {
             let expr = if !self.advance(Symbol::Semicolon) {
@@ -439,10 +443,16 @@ impl<'s, 'p> Parser<'s, 'p> {
 
         let expr = self.parse_expr(0)?;
         for &(op, symbol) in ASSIGN_OPS {
-            if self.advance(symbol) {
+            if let Some((_, op_span)) = self.consume(symbol) {
                 let src = self.parse_expr(0)?;
-                self.expect(Symbol::Semicolon)?;
-                return Ok(Stmt::Assign { op, dst: expr, src });
+                let (_, semicolon) = self.expect(Symbol::Semicolon)?;
+                return Ok(Stmt::Assign {
+                    dst: expr,
+                    op,
+                    op_span,
+                    src,
+                    semicolon,
+                });
             }
         }
         self.expect(Symbol::Semicolon)?;
