@@ -1,0 +1,8 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"foo(1)\", |parser| parser.parse_stmt())"
+---
+ParseError {
+    span: None,
+    message: "expected semicolon",
+}

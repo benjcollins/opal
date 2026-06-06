@@ -1,0 +1,39 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_successful(\"foo(1);\", |parser| parser.parse_stmt())"
+---
+Expr {
+    expr: Call {
+        func: Var {
+            name: "foo",
+            span: Span {
+                start: 0,
+                end: 3,
+            },
+        },
+        open_paren: Span {
+            start: 3,
+            end: 4,
+        },
+        args: [
+            (
+                Int {
+                    value: 1,
+                    span: Span {
+                        start: 4,
+                        end: 5,
+                    },
+                },
+                None,
+            ),
+        ],
+        close_paren: Span {
+            start: 5,
+            end: 6,
+        },
+    },
+    semicolon: Span {
+        start: 6,
+        end: 7,
+    },
+}

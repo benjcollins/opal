@@ -1,0 +1,8 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"(1 + 2\", |parser| parser.parse_expr(0))"
+---
+ParseError {
+    span: None,
+    message: "expected closing parenthesis",
+}

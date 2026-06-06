@@ -11,8 +11,8 @@ pub struct Lexer<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
-    start: usize,
-    end: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 static KEYWORD_MAP: LazyLock<HashMap<&'static str, Keyword>> =
@@ -72,11 +72,8 @@ impl<'a> Lexer<'a> {
             }
 
             if self.consume_str("//") {
-                while let Some(ch) = self.peek_char() {
+                while self.peek_char().is_some_and(|ch| ch != '\n') {
                     self.advance_char();
-                    if ch == '\n' {
-                        break;
-                    }
                 }
                 continue;
             }
@@ -86,6 +83,36 @@ impl<'a> Lexer<'a> {
                     self.advance_char();
                 }
                 continue;
+            }
+
+            if ch == '"' {
+                self.advance_char();
+                let mut value = String::new();
+                while let Some(ch) = self.peek_char() {
+                    if ch == '"' {
+                        self.advance_char();
+                        break;
+                    } else if ch == '\\' {
+                        self.advance_char();
+                        if let Some(escaped) = self.peek_char() {
+                            value.push(match escaped {
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                '\\' => '\\',
+                                '"' => '"',
+                                other => other,
+                            });
+                            self.advance_char();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        value.push(ch);
+                        self.advance_char();
+                    }
+                }
+                break Token::Str(value);
             }
 
             if is_ident_start(ch) {
@@ -106,6 +133,17 @@ impl<'a> Lexer<'a> {
                 while let Some(digit) = self.peek_char().and_then(|ch| ch.to_digit(10)) {
                     self.advance_char();
                     value = value * 10 + digit as i64;
+                }
+                if self.peek_char() == Some('.') {
+                    self.advance_char();
+                    let mut fraction = 0.0;
+                    let mut divisor = 1.0;
+                    while let Some(digit) = self.peek_char().and_then(|ch| ch.to_digit(10)) {
+                        self.advance_char();
+                        fraction = fraction * 10.0 + digit as f64;
+                        divisor *= 10.0;
+                    }
+                    break Token::Float(value as f64 + fraction / divisor);
                 }
                 break Token::Int(value);
             }

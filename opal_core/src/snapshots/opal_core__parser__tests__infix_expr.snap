@@ -1,0 +1,25 @@
+---
+source: opal_core/src/parser.rs
+expression: "check_successful(\"5 + 2\", |parser| parser.parse_expr(0))"
+---
+Infix {
+    left: Int {
+        value: 5,
+        span: Span {
+            start: 0,
+            end: 1,
+        },
+    },
+    op: Add,
+    op_span: Span {
+        start: 2,
+        end: 3,
+    },
+    right: Int {
+        value: 2,
+        span: Span {
+            start: 4,
+            end: 5,
+        },
+    },
+}

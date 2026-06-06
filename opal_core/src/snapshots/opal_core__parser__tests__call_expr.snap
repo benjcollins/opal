@@ -1,0 +1,48 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_successful(\"foo(1, 2)\", |parser| parser.parse_expr(0))"
+---
+Call {
+    func: Var {
+        name: "foo",
+        span: Span {
+            start: 0,
+            end: 3,
+        },
+    },
+    open_paren: Span {
+        start: 3,
+        end: 4,
+    },
+    args: [
+        (
+            Int {
+                value: 1,
+                span: Span {
+                    start: 4,
+                    end: 5,
+                },
+            },
+            Some(
+                Span {
+                    start: 5,
+                    end: 6,
+                },
+            ),
+        ),
+        (
+            Int {
+                value: 2,
+                span: Span {
+                    start: 7,
+                    end: 8,
+                },
+            },
+            None,
+        ),
+    ],
+    close_paren: Span {
+        start: 8,
+        end: 9,
+    },
+}

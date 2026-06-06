@@ -1,9 +1,10 @@
 use strum::{EnumIter, IntoStaticStr};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(String),
     Int(i64),
+    Float(f64),
     Str(String),
     Keyword(Keyword),
     Symbol(Symbol),
@@ -14,7 +15,10 @@ pub enum Token {
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Var,
-    Fun,
+    Func,
+    True,
+    False,
+    Module,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
@@ -26,6 +30,12 @@ pub enum Symbol {
     Comma,
     Semicolon,
     Equals,
+    Slash,
+    Asterisk,
+    Minus,
+    Plus,
+    Colon,
+    Arrow,
 }
 
 impl Symbol {
@@ -38,6 +48,12 @@ impl Symbol {
             Symbol::Comma => ",",
             Symbol::Equals => "=",
             Symbol::Semicolon => ";",
+            Symbol::Slash => "/",
+            Symbol::Asterisk => "*",
+            Symbol::Minus => "-",
+            Symbol::Plus => "+",
+            Symbol::Colon => ":",
+            Symbol::Arrow => "->",
         }
     }
 }

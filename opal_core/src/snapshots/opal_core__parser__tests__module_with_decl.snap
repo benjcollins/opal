@@ -1,0 +1,80 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_successful(\"module main; func main() { var x = 3; }\", |parser|\nparser.parse_file())"
+---
+File {
+    module_keyword: Span {
+        start: 0,
+        end: 6,
+    },
+    module_name: "main",
+    module_name_span: Span {
+        start: 7,
+        end: 11,
+    },
+    semicolon: Span {
+        start: 11,
+        end: 12,
+    },
+    decls: [
+        Func {
+            func: Span {
+                start: 13,
+                end: 17,
+            },
+            name: "main",
+            name_span: Span {
+                start: 18,
+                end: 22,
+            },
+            open_paren: Span {
+                start: 22,
+                end: 23,
+            },
+            params: [],
+            close_paren: Span {
+                start: 23,
+                end: 24,
+            },
+            returns: None,
+            body: Block {
+                open_brace: Span {
+                    start: 25,
+                    end: 26,
+                },
+                stmts: [
+                    VarDecl {
+                        var: Span {
+                            start: 27,
+                            end: 30,
+                        },
+                        name: "x",
+                        name_span: Span {
+                            start: 31,
+                            end: 32,
+                        },
+                        equals: Span {
+                            start: 33,
+                            end: 34,
+                        },
+                        value: Int {
+                            value: 3,
+                            span: Span {
+                                start: 35,
+                                end: 36,
+                            },
+                        },
+                        semicolon: Span {
+                            start: 36,
+                            end: 37,
+                        },
+                    },
+                ],
+                close_brace: Span {
+                    start: 38,
+                    end: 39,
+                },
+            },
+        },
+    ],
+}

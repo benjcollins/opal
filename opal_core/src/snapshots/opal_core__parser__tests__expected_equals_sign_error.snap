@@ -1,0 +1,13 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"var x 3;\", |parser| parser.parse_stmt())"
+---
+ParseError {
+    span: Some(
+        Span {
+            start: 6,
+            end: 7,
+        },
+    ),
+    message: "expected equals sign",
+}

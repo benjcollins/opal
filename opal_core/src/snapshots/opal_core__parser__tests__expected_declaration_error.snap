@@ -1,0 +1,13 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"let x = 3;\", |parser| parser.parse_decl())"
+---
+ParseError {
+    span: Some(
+        Span {
+            start: 0,
+            end: 3,
+        },
+    ),
+    message: "expected a declaration",
+}

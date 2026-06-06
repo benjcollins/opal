@@ -1,0 +1,13 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\";\", |parser| parser.parse_expr(0))"
+---
+ParseError {
+    span: Some(
+        Span {
+            start: 0,
+            end: 1,
+        },
+    ),
+    message: "expected an expression",
+}

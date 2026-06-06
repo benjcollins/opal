@@ -1,11 +1,10 @@
 use std::fs;
 
-use opal_core::lexer::Lexer;
+use opal_core::parser::Parser;
 
 fn main() {
     let input = fs::read_to_string("examples/example.opal").unwrap();
-    let lexer = Lexer::new(&input);
-    for (token, span) in lexer {
-        println!("{:?}", (token, span));
-    }
+    let mut parser = Parser::new(&input);
+    let expr = parser.parse_expr(0).unwrap();
+    println!("{:#?}", expr);
 }

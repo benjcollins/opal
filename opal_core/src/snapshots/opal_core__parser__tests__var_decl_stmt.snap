@@ -1,0 +1,30 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_successful(\"var x = 3;\", |parser| parser.parse_stmt())"
+---
+VarDecl {
+    var: Span {
+        start: 0,
+        end: 3,
+    },
+    name: "x",
+    name_span: Span {
+        start: 4,
+        end: 5,
+    },
+    equals: Span {
+        start: 6,
+        end: 7,
+    },
+    value: Int {
+        value: 3,
+        span: Span {
+            start: 8,
+            end: 9,
+        },
+    },
+    semicolon: Span {
+        start: 9,
+        end: 10,
+    },
+}

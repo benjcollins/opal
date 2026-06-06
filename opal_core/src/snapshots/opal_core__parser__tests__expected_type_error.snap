@@ -1,0 +1,13 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"func main(x: ) {}\", |parser| parser.parse_decl())"
+---
+ParseError {
+    span: Some(
+        Span {
+            start: 13,
+            end: 14,
+        },
+    ),
+    message: "expected a type",
+}

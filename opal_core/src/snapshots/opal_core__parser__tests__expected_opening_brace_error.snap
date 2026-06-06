@@ -1,0 +1,8 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_unsuccessful(\"func main()\", |parser| parser.parse_decl())"
+---
+ParseError {
+    span: None,
+    message: "expected opening brace",
+}

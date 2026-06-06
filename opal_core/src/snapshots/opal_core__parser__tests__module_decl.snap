@@ -1,0 +1,20 @@
+---
+source: opal_core/src/parser.rs
+expression: "parse_successful(\"module main;\", |parser| parser.parse_file())"
+---
+File {
+    module_keyword: Span {
+        start: 0,
+        end: 6,
+    },
+    module_name: "main",
+    module_name_span: Span {
+        start: 7,
+        end: 11,
+    },
+    semicolon: Span {
+        start: 11,
+        end: 12,
+    },
+    decls: [],
+}
