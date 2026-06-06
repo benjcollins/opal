@@ -9,25 +9,19 @@ pub struct Lexer<'a> {
     position: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     start: usize,
     end: usize,
 }
 
-static KEYWORDS: LazyLock<HashMap<&'static str, Keyword>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    for keyword in Keyword::iter() {
-        map.insert(keyword.into(), keyword);
-    }
-    map
-});
+static KEYWORD_MAP: LazyLock<HashMap<&'static str, Keyword>> =
+    LazyLock::new(|| HashMap::from_iter(Keyword::iter().map(|keyword| (keyword.into(), keyword))));
 
-static SYMBOLS: LazyLock<HashMap<&'static str, Symbol>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    for symbol in Symbol::iter() {
-        map.insert(symbol.to_str(), symbol);
-    }
-    map
+static SYMBOLS_SORTED: LazyLock<Vec<Symbol>> = LazyLock::new(|| {
+    let mut symbols = Vec::from_iter(Symbol::iter());
+    symbols.sort_by_key(|symbol| symbol.to_str());
+    symbols
 });
 
 fn is_ident_start(ch: char) -> bool {
@@ -55,6 +49,15 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    pub fn consume_str(&mut self, expected: &str) -> bool {
+        if self.input[self.position..].starts_with(expected) {
+            self.position += expected.len();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn next_token(&mut self) -> Option<(Token, Span)> {
         let mut start;
 
@@ -68,13 +71,30 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            if self.consume_str("//") {
+                while let Some(ch) = self.peek_char() {
+                    self.advance_char();
+                    if ch == '\n' {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            if self.consume_str("/*") {
+                while !self.consume_str("*/") && self.peek_char().is_some() {
+                    self.advance_char();
+                }
+                continue;
+            }
+
             if is_ident_start(ch) {
                 self.advance_char();
                 while self.peek_char().is_some_and(is_ident_continue) {
                     self.advance_char();
                 }
                 let ident = &self.input[start..self.position];
-                if let Some(keyword) = KEYWORDS.get(ident) {
+                if let Some(keyword) = KEYWORD_MAP.get(ident) {
                     break Token::Keyword(*keyword);
                 } else {
                     break Token::Ident(ident.to_string());
@@ -90,16 +110,26 @@ impl<'a> Lexer<'a> {
                 break Token::Int(value);
             }
 
-            for symbol in SYMBOLS.iter() {
-                if self.input[self.position..].starts_with(symbol.0) {
-                    self.position += symbol.0.len();
-                    break 'outer Token::Symbol(*symbol.1);
+            for symbol in SYMBOLS_SORTED.iter().copied() {
+                if self.consume_str(symbol.to_str()) {
+                    break 'outer Token::Symbol(symbol);
                 }
             }
+
+            self.advance_char();
+            break Token::Invalid(ch);
         };
 
         let end = self.position;
 
         Some((token, Span { start, end }))
+    }
+}
+
+impl Iterator for Lexer<'_> {
+    type Item = (Token, Span);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token()
     }
 }
