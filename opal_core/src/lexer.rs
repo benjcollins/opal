@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::{cmp::Reverse, collections::HashMap, sync::LazyLock};
 
 use strum::IntoEnumIterator;
 
@@ -20,7 +20,7 @@ static KEYWORD_MAP: LazyLock<HashMap<&'static str, Keyword>> =
 
 static SYMBOLS_SORTED: LazyLock<Vec<Symbol>> = LazyLock::new(|| {
     let mut symbols = Vec::from_iter(Symbol::iter());
-    symbols.sort_by_key(|symbol| symbol.to_str());
+    symbols.sort_by_key(|symbol| Reverse(symbol.to_str()));
     symbols
 });
 
@@ -58,6 +58,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    pub fn consume_block_comment(&mut self) {
+        while !self.consume_str("*/") && self.peek_char().is_some() {
+            if self.consume_str("/*") {
+                self.consume_block_comment();
+            }
+            self.advance_char();
+        }
+    }
+
+    pub fn consume_line_comment(&mut self) {}
+
     pub fn next_token(&mut self) -> Option<(Token, Span)> {
         let mut start;
 
@@ -79,9 +90,7 @@ impl<'a> Lexer<'a> {
             }
 
             if self.consume_str("/*") {
-                while !self.consume_str("*/") && self.peek_char().is_some() {
-                    self.advance_char();
-                }
+                self.consume_block_comment();
                 continue;
             }
 
@@ -169,5 +178,271 @@ impl Iterator for Lexer<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        lexer::{Lexer, Span},
+        token::{Keyword, Symbol, Token},
+    };
+
+    fn check(input: &str, expected_tokens: &[(Token, Span)]) {
+        let tokens: Vec<_> = Lexer::new(input).collect();
+        assert_eq!(tokens, expected_tokens);
+    }
+
+    #[test]
+    fn example_test() {
+        check("52", &[(Token::Int(52), Span { start: 0, end: 2 })]);
+    }
+
+    // Token type tests
+    #[test]
+    fn test_int_token() {
+        check("42", &[(Token::Int(42), Span { start: 0, end: 2 })]);
+    }
+
+    #[test]
+    fn test_float_token() {
+        check("3.74", &[(Token::Float(3.74), Span { start: 0, end: 4 })]);
+    }
+
+    #[test]
+    fn test_string_token() {
+        check(
+            "\"hello\"",
+            &[(Token::Str("hello".to_string()), Span { start: 0, end: 7 })],
+        );
+    }
+
+    #[test]
+    fn test_string_with_escapes() {
+        check(
+            "\"hello\\nworld\"",
+            &[(Token::Str("hello\nworld".to_string()), Span { start: 0, end: 14 })],
+        );
+    }
+
+    #[test]
+    fn test_ident_token() {
+        check(
+            "myvar",
+            &[(Token::Ident("myvar".to_string()), Span { start: 0, end: 5 })],
+        );
+    }
+
+    #[test]
+    fn test_ident_with_underscore() {
+        check(
+            "_private",
+            &[(Token::Ident("_private".to_string()), Span { start: 0, end: 8 })],
+        );
+    }
+
+    // Keyword tests
+    #[test]
+    fn test_keyword_var() {
+        check("var", &[(Token::Keyword(Keyword::Var), Span { start: 0, end: 3 })]);
+    }
+
+    #[test]
+    fn test_keyword_func() {
+        check("func", &[(Token::Keyword(Keyword::Func), Span { start: 0, end: 4 })]);
+    }
+
+    #[test]
+    fn test_keyword_true() {
+        check("true", &[(Token::Keyword(Keyword::True), Span { start: 0, end: 4 })]);
+    }
+
+    #[test]
+    fn test_keyword_false() {
+        check("false", &[(Token::Keyword(Keyword::False), Span { start: 0, end: 5 })]);
+    }
+
+    #[test]
+    fn test_keyword_module() {
+        check(
+            "module",
+            &[(Token::Keyword(Keyword::Module), Span { start: 0, end: 6 })],
+        );
+    }
+
+    // Symbol tests
+    #[test]
+    fn test_open_paren() {
+        check("(", &[(Token::Symbol(Symbol::OpenParen), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_close_paren() {
+        check(")", &[(Token::Symbol(Symbol::CloseParen), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_open_brace() {
+        check("{", &[(Token::Symbol(Symbol::OpenBrace), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_close_brace() {
+        check("}", &[(Token::Symbol(Symbol::CloseBrace), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_comma() {
+        check(",", &[(Token::Symbol(Symbol::Comma), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_semicolon() {
+        check(";", &[(Token::Symbol(Symbol::Semicolon), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_equals() {
+        check("=", &[(Token::Symbol(Symbol::Equals), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_plus() {
+        check("+", &[(Token::Symbol(Symbol::Plus), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_minus() {
+        check("-", &[(Token::Symbol(Symbol::Minus), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_asterisk() {
+        check("*", &[(Token::Symbol(Symbol::Asterisk), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_slash() {
+        check("/", &[(Token::Symbol(Symbol::Slash), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_colon() {
+        check(":", &[(Token::Symbol(Symbol::Colon), Span { start: 0, end: 1 })]);
+    }
+
+    #[test]
+    fn test_arrow() {
+        check("->", &[(Token::Symbol(Symbol::Arrow), Span { start: 0, end: 2 })]);
+    }
+
+    // Comment tests
+    #[test]
+    fn test_line_comment() {
+        check(
+            "// this is a comment\n42",
+            &[(Token::Int(42), Span { start: 21, end: 23 })],
+        );
+    }
+
+    #[test]
+    fn test_line_comment_at_end() {
+        check("42 // comment", &[(Token::Int(42), Span { start: 0, end: 2 })]);
+    }
+
+    #[test]
+    fn test_block_comment() {
+        check("/* comment */ 42", &[(Token::Int(42), Span { start: 14, end: 16 })]);
+    }
+
+    #[test]
+    fn test_nested_block_comment() {
+        check(
+            "/* outer /* inner */ outer */ 42",
+            &[(Token::Int(42), Span { start: 30, end: 32 })],
+        );
+    }
+
+    #[test]
+    fn test_multiline_block_comment() {
+        check(
+            "/* line1\nline2\nline3 */ 42",
+            &[(Token::Int(42), Span { start: 24, end: 26 })],
+        );
+    }
+
+    // Whitespace tests
+    #[test]
+    fn test_spaces_ignored() {
+        check(
+            "42   100",
+            &[
+                (Token::Int(42), Span { start: 0, end: 2 }),
+                (Token::Int(100), Span { start: 5, end: 8 }),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_tabs_ignored() {
+        check(
+            "42\t100",
+            &[
+                (Token::Int(42), Span { start: 0, end: 2 }),
+                (Token::Int(100), Span { start: 3, end: 6 }),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_newlines_ignored() {
+        check(
+            "42\n100",
+            &[
+                (Token::Int(42), Span { start: 0, end: 2 }),
+                (Token::Int(100), Span { start: 3, end: 6 }),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_mixed_whitespace() {
+        check(
+            "42  \t\n  100",
+            &[
+                (Token::Int(42), Span { start: 0, end: 2 }),
+                (Token::Int(100), Span { start: 8, end: 11 }),
+            ],
+        );
+    }
+
+    // Complex tests
+    #[test]
+    fn test_expression_with_multiple_tokens() {
+        check(
+            "x + 42",
+            &[
+                (Token::Ident("x".to_string()), Span { start: 0, end: 1 }),
+                (Token::Symbol(Symbol::Plus), Span { start: 2, end: 3 }),
+                (Token::Int(42), Span { start: 4, end: 6 }),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_function_signature() {
+        check(
+            "func main() -> i32 { }",
+            &[
+                (Token::Keyword(Keyword::Func), Span { start: 0, end: 4 }),
+                (Token::Ident("main".to_string()), Span { start: 5, end: 9 }),
+                (Token::Symbol(Symbol::OpenParen), Span { start: 9, end: 10 }),
+                (Token::Symbol(Symbol::CloseParen), Span { start: 10, end: 11 }),
+                (Token::Symbol(Symbol::Arrow), Span { start: 12, end: 14 }),
+                (Token::Ident("i32".to_string()), Span { start: 15, end: 18 }),
+                (Token::Symbol(Symbol::OpenBrace), Span { start: 19, end: 20 }),
+                (Token::Symbol(Symbol::CloseBrace), Span { start: 21, end: 22 }),
+            ],
+        );
     }
 }

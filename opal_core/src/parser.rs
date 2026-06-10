@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Block, Decl, Expr, File, InfixOp, Param, Returns, Stmt, Type},
+    ast,
     lexer::{Lexer, Span},
     token::{Keyword, Symbol, Token},
 };
@@ -7,6 +7,7 @@ use crate::{
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     token: Option<(Token, Span)>,
+    next_id: u32,
 }
 
 #[derive(Debug)]
@@ -21,6 +22,7 @@ impl<'a> Parser<'a> {
         Self {
             token: lexer.next_token(),
             lexer,
+            next_id: 0,
         }
     }
     fn peek_token(&mut self) -> Option<&Token> {
@@ -40,41 +42,41 @@ impl<'a> Parser<'a> {
             message,
         }
     }
-    pub fn parse_value(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_value(&mut self) -> Result<ast::Expr, ParseError> {
         match self.peek_token() {
             Some(Token::Int(value)) => {
                 let value = *value;
                 let span = self.advance_token();
-                Ok(Expr::Int { value, span })
+                Ok(ast::Expr::Int { value, span })
             }
             Some(Token::Str(value)) => {
                 let value = value.clone();
                 let span = self.advance_token();
-                Ok(Expr::Str { value, span })
+                Ok(ast::Expr::Str { value, span })
             }
             Some(Token::Ident(name)) => {
                 let name = name.clone();
                 let span = self.advance_token();
-                Ok(Expr::Var { name, span })
+                Ok(ast::Expr::Var { name, span })
             }
             Some(Token::Keyword(Keyword::True)) => {
                 let span = self.advance_token();
-                Ok(Expr::Bool { value: true, span })
+                Ok(ast::Expr::Bool { value: true, span })
             }
             Some(Token::Keyword(Keyword::False)) => {
                 let span = self.advance_token();
-                Ok(Expr::Bool { value: false, span })
+                Ok(ast::Expr::Bool { value: false, span })
             }
             Some(Token::Float(value)) => {
                 let value = *value;
                 let span = self.advance_token();
-                Ok(Expr::Float { value, span })
+                Ok(ast::Expr::Float { value, span })
             }
             Some(Token::Symbol(Symbol::OpenParen)) => {
                 let open_paren = self.advance_token();
                 if self.peek_token() == Some(&Token::Symbol(Symbol::CloseParen)) {
                     let close_paren = self.advance_token();
-                    Ok(Expr::Unit {
+                    Ok(ast::Expr::Unit {
                         open_paren,
                         close_paren,
                     })
@@ -82,7 +84,7 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_expr(0)?;
                     if self.peek_token() == Some(&Token::Symbol(Symbol::CloseParen)) {
                         let close_paren = self.advance_token();
-                        Ok(Expr::Parens {
+                        Ok(ast::Expr::Parens {
                             open_paren,
                             expr: Box::new(expr),
                             close_paren,
@@ -95,12 +97,12 @@ impl<'a> Parser<'a> {
             _ => Err(self.parse_error("expected an expression")),
         }
     }
-    pub fn parse_expr(&mut self, prec: u8) -> Result<Expr, ParseError> {
-        const INFIX_PRECEDENCE: &[(Symbol, InfixOp, u8)] = &[
-            (Symbol::Plus, InfixOp::Add, 2),
-            (Symbol::Minus, InfixOp::Sub, 2),
-            (Symbol::Asterisk, InfixOp::Mul, 3),
-            (Symbol::Slash, InfixOp::Div, 3),
+    pub fn parse_expr(&mut self, prec: u8) -> Result<ast::Expr, ParseError> {
+        const INFIX_PRECEDENCE: &[(Symbol, ast::InfixOp, u8)] = &[
+            (Symbol::Plus, ast::InfixOp::Add, 2),
+            (Symbol::Minus, ast::InfixOp::Sub, 2),
+            (Symbol::Asterisk, ast::InfixOp::Mul, 3),
+            (Symbol::Slash, ast::InfixOp::Div, 3),
         ];
 
         let mut left = self.parse_value()?;
@@ -123,7 +125,7 @@ impl<'a> Parser<'a> {
                     return Err(self.parse_error("expected closing parenthesis"));
                 }
                 let close_paren = self.advance_token();
-                left = Expr::Call {
+                left = ast::Expr::Call {
                     func: Box::new(left),
                     open_paren,
                     args,
@@ -135,7 +137,7 @@ impl<'a> Parser<'a> {
                 if self.peek_token() == Some(&Token::Symbol(symbol)) && op_prec > prec {
                     let op_span = self.advance_token();
                     let right = self.parse_expr(op_prec)?;
-                    left = Expr::Infix {
+                    left = ast::Expr::Infix {
                         left: Box::new(left),
                         op,
                         op_span,
@@ -149,16 +151,16 @@ impl<'a> Parser<'a> {
 
         Ok(left)
     }
-    pub fn parse_type(&mut self) -> Result<Type, ParseError> {
+    pub fn parse_type(&mut self) -> Result<ast::Type, ParseError> {
         if let Some(Token::Ident(name)) = self.peek_token() {
             let name = name.clone();
             let span = self.advance_token();
-            Ok(Type { name, span })
+            Ok(ast::Type { name, span })
         } else {
             Err(self.parse_error("expected a type"))
         }
     }
-    pub fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+    pub fn parse_stmt(&mut self) -> Result<ast::Stmt, ParseError> {
         match self.peek_token() {
             Some(Token::Keyword(Keyword::Var)) => {
                 let var = self.advance_token();
@@ -174,7 +176,7 @@ impl<'a> Parser<'a> {
                         return Err(self.parse_error("expected semicolon"));
                     }
                     let semicolon = self.advance_token();
-                    Ok(Stmt::VarDecl {
+                    Ok(ast::Stmt::VarDecl {
                         var,
                         name,
                         name_span,
@@ -192,11 +194,11 @@ impl<'a> Parser<'a> {
                     return Err(self.parse_error("expected semicolon"));
                 };
                 let semicolon = self.advance_token();
-                Ok(Stmt::Expr { expr, semicolon })
+                Ok(ast::Stmt::Expr { expr, semicolon })
             }
         }
     }
-    pub fn parse_block(&mut self) -> Result<Block, ParseError> {
+    pub fn parse_block(&mut self) -> Result<ast::Block, ParseError> {
         if self.peek_token() != Some(&Token::Symbol(Symbol::OpenBrace)) {
             return Err(self.parse_error("expected opening brace"));
         }
@@ -206,13 +208,13 @@ impl<'a> Parser<'a> {
             stmts.push(self.parse_stmt()?);
         }
         let close_brace = self.advance_token();
-        Ok(Block {
+        Ok(ast::Block {
             open_brace,
             stmts,
             close_brace,
         })
     }
-    pub fn parse_param(&mut self) -> Result<Param, ParseError> {
+    pub fn parse_param(&mut self) -> Result<ast::Param, ParseError> {
         let Some(Token::Ident(name)) = self.peek_token() else {
             return Err(self.parse_error("expected parameter name"));
         };
@@ -228,7 +230,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        Ok(Param {
+        Ok(ast::Param {
             name,
             name_span,
             colon,
@@ -236,7 +238,7 @@ impl<'a> Parser<'a> {
             comma,
         })
     }
-    pub fn parse_decl(&mut self) -> Result<Decl, ParseError> {
+    pub fn parse_decl(&mut self) -> Result<ast::Decl, ParseError> {
         match self.peek_token() {
             Some(Token::Keyword(Keyword::Func)) => {
                 let func = self.advance_token();
@@ -262,12 +264,12 @@ impl<'a> Parser<'a> {
                 let returns = if self.peek_token() == Some(&Token::Symbol(Symbol::Arrow)) {
                     let arrow = self.advance_token();
                     let ty = self.parse_type()?;
-                    Some(Returns { arrow, ty })
+                    Some(ast::Returns { arrow, ty })
                 } else {
                     None
                 };
                 let body = self.parse_block()?;
-                Ok(Decl::Func {
+                Ok(ast::Decl::Func {
                     func,
                     name,
                     name_span,
@@ -281,7 +283,7 @@ impl<'a> Parser<'a> {
             _ => Err(self.parse_error("expected a declaration")),
         }
     }
-    pub fn parse_file(&mut self) -> Result<File, ParseError> {
+    pub fn parse_file(&mut self) -> Result<ast::File, ParseError> {
         if self.peek_token() != Some(&Token::Keyword(Keyword::Module)) {
             return Err(self.parse_error("expected module declaration"));
         }
@@ -299,7 +301,7 @@ impl<'a> Parser<'a> {
         while self.peek_token().is_some() {
             decls.push(self.parse_decl()?);
         }
-        Ok(File {
+        Ok(ast::File {
             decls,
             module_keyword,
             module_name,
@@ -317,10 +319,7 @@ mod tests {
 
     use super::{ParseError, Parser};
 
-    fn parse_successful<T>(
-        input: &str,
-        parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>,
-    ) -> T {
+    fn parse_successful<T>(input: &str, parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>) -> T {
         let mut parser = Parser::new(input);
         parse_fn(&mut parser).unwrap()
     }
@@ -384,10 +383,9 @@ mod tests {
 
     #[test]
     fn test_module_with_decl() {
-        assert_debug_snapshot!(parse_successful(
-            "module main; func main() { var x = 3; }",
-            |parser| parser.parse_file()
-        ));
+        assert_debug_snapshot!(parse_successful("module main; func main() { var x = 3; }", |parser| {
+            parser.parse_file()
+        }));
     }
 
     fn parse_failure<T: Debug>(
@@ -395,9 +393,7 @@ mod tests {
         parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>,
         expected_message: &str,
     ) {
-        let error_start = input
-            .find("<ERROR>")
-            .expect("expected <ERROR> marker in input");
+        let error_start = input.find("<ERROR>").expect("expected <ERROR> marker in input");
         let input = input.replace("<ERROR>", "");
         let mut parser = Parser::new(&input);
         let error = parse_fn(&mut parser).unwrap_err();
@@ -420,11 +416,7 @@ mod tests {
 
     #[test]
     fn test_expected_expression_error() {
-        parse_failure(
-            "<ERROR>;",
-            |parser| parser.parse_expr(0),
-            "expected an expression",
-        );
+        parse_failure("<ERROR>;", |parser| parser.parse_expr(0), "expected an expression");
     }
 
     #[test]
@@ -438,20 +430,12 @@ mod tests {
 
     #[test]
     fn test_expected_equals_sign_error() {
-        parse_failure(
-            "var x <ERROR>3;",
-            |parser| parser.parse_stmt(),
-            "expected equals sign",
-        );
+        parse_failure("var x <ERROR>3;", |parser| parser.parse_stmt(), "expected equals sign");
     }
 
     #[test]
     fn test_expected_semicolon_error() {
-        parse_failure(
-            "foo(1)<ERROR>",
-            |parser| parser.parse_stmt(),
-            "expected semicolon",
-        );
+        parse_failure("foo(1)<ERROR>", |parser| parser.parse_stmt(), "expected semicolon");
     }
 
     #[test]
@@ -528,19 +512,11 @@ mod tests {
 
     #[test]
     fn test_expected_module_name_error() {
-        parse_failure(
-            "module <ERROR>;",
-            |parser| parser.parse_file(),
-            "expected module name",
-        );
+        parse_failure("module <ERROR>;", |parser| parser.parse_file(), "expected module name");
     }
 
     #[test]
     fn test_expected_module_semicolon_error() {
-        parse_failure(
-            "module main<ERROR>",
-            |parser| parser.parse_file(),
-            "expected semicolon",
-        );
+        parse_failure("module main<ERROR>", |parser| parser.parse_file(), "expected semicolon");
     }
 }
