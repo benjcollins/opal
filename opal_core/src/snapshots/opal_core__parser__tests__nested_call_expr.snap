@@ -3,7 +3,7 @@ source: opal_core/src/parser.rs
 expression: "parse_successful(\"foo(bar(1), 2)\", |parser| parser.parse_expr(0))"
 ---
 Call {
-    func: Var {
+    fun: Var {
         name: "foo",
         span: Span {
             start: 0,
@@ -17,7 +17,7 @@ Call {
     args: [
         (
             Call {
-                func: Var {
+                fun: Var {
                     name: "bar",
                     span: Span {
                         start: 4,

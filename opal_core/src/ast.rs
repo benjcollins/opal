@@ -14,7 +14,7 @@ pub enum Expr {
         value: f64,
         span: Span,
     },
-    Str {
+    String {
         value: String,
         span: Span,
     },
@@ -27,7 +27,7 @@ pub enum Expr {
         span: Span,
     },
     Call {
-        func: Box<Expr>,
+        fun: Box<Expr>,
         open_paren: Span,
         args: Vec<(Expr, Option<Span>)>,
         close_paren: Span,
@@ -67,6 +67,11 @@ pub enum Stmt {
         expr: Expr,
         semicolon: Span,
     },
+    Return {
+        return_: Span,
+        expr: Option<Expr>,
+        semicolon: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,8 +104,8 @@ pub struct Returns {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decl {
-    Func {
-        func: Span,
+    Fun {
+        fun: Span,
         name: String,
         name_span: Span,
         open_paren: Span,

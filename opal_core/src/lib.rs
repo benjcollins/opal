@@ -1,5 +1,12 @@
+pub mod analyzer;
 pub mod ast;
+pub mod bytecode;
+pub mod codegen;
+pub mod instr;
+pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod scoped_map;
 pub mod token;
+pub mod ty;
+pub mod value;

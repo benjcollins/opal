@@ -7,7 +7,6 @@ use crate::{
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     token: Option<(Token, Span)>,
-    next_id: u32,
 }
 
 #[derive(Debug)]
@@ -19,11 +18,8 @@ pub struct ParseError {
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = Lexer::new(input);
-        Self {
-            token: lexer.next_token(),
-            lexer,
-            next_id: 0,
-        }
+        let token = lexer.next_token();
+        Self { token, lexer }
     }
     fn peek_token(&mut self) -> Option<&Token> {
         self.token.as_ref().map(|(token, _)| token)
@@ -49,10 +45,10 @@ impl<'a> Parser<'a> {
                 let span = self.advance_token();
                 Ok(ast::Expr::Int { value, span })
             }
-            Some(Token::Str(value)) => {
+            Some(Token::String(value)) => {
                 let value = value.clone();
                 let span = self.advance_token();
-                Ok(ast::Expr::Str { value, span })
+                Ok(ast::Expr::String { value, span })
             }
             Some(Token::Ident(name)) => {
                 let name = name.clone();
@@ -126,7 +122,7 @@ impl<'a> Parser<'a> {
                 }
                 let close_paren = self.advance_token();
                 left = ast::Expr::Call {
-                    func: Box::new(left),
+                    fun: Box::new(left),
                     open_paren,
                     args,
                     close_paren,
@@ -188,6 +184,24 @@ impl<'a> Parser<'a> {
                     Err(self.parse_error("expected variable name"))
                 }
             }
+            Some(Token::Keyword(Keyword::Return)) => {
+                let return_ = self.advance_token();
+                let expr = if self.peek_token() == Some(&Token::Symbol(Symbol::Semicolon)) {
+                    None
+                } else {
+                    let expr = self.parse_expr(0)?;
+                    if self.peek_token() != Some(&Token::Symbol(Symbol::Semicolon)) {
+                        return Err(self.parse_error("expected a semicolon"));
+                    }
+                    Some(expr)
+                };
+                let semicolon = self.advance_token();
+                Ok(ast::Stmt::Return {
+                    return_,
+                    expr,
+                    semicolon,
+                })
+            }
             _ => {
                 let expr = self.parse_expr(0)?;
                 if self.peek_token() != Some(&Token::Symbol(Symbol::Semicolon)) {
@@ -240,7 +254,7 @@ impl<'a> Parser<'a> {
     }
     pub fn parse_decl(&mut self) -> Result<ast::Decl, ParseError> {
         match self.peek_token() {
-            Some(Token::Keyword(Keyword::Func)) => {
+            Some(Token::Keyword(Keyword::Fun)) => {
                 let func = self.advance_token();
                 let Some(Token::Ident(name)) = self.peek_token() else {
                     return Err(self.parse_error("expected function name"));
@@ -269,8 +283,8 @@ impl<'a> Parser<'a> {
                     None
                 };
                 let body = self.parse_block()?;
-                Ok(ast::Decl::Func {
-                    func,
+                Ok(ast::Decl::Fun {
+                    fun: func,
                     name,
                     name_span,
                     open_paren,
@@ -370,8 +384,8 @@ mod tests {
     }
 
     #[test]
-    fn test_func_decl() {
-        assert_debug_snapshot!(parse_successful("func main() { var x = 3; }", |parser| {
+    fn test_fun_decl() {
+        assert_debug_snapshot!(parse_successful("fun main() { var x = 3; }", |parser| {
             parser.parse_decl()
         }));
     }
@@ -383,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_module_with_decl() {
-        assert_debug_snapshot!(parse_successful("module main; func main() { var x = 3; }", |parser| {
+        assert_debug_snapshot!(parse_successful("module main; fun main() { var x = 3; }", |parser| {
             parser.parse_file()
         }));
     }
@@ -422,7 +436,7 @@ mod tests {
     #[test]
     fn test_expected_type_error() {
         parse_failure(
-            "func main(x: <ERROR>) {}",
+            "fun main(x: <ERROR>) {}",
             |parser| parser.parse_decl(),
             "expected a type",
         );
@@ -450,7 +464,7 @@ mod tests {
     #[test]
     fn test_expected_opening_brace_error() {
         parse_failure(
-            "func main()<ERROR>",
+            "fun main()<ERROR>",
             |parser| parser.parse_decl(),
             "expected opening brace",
         );
@@ -459,7 +473,7 @@ mod tests {
     #[test]
     fn test_expected_parameter_name_error() {
         parse_failure(
-            "func main(<ERROR>: i32) {}",
+            "fun main(<ERROR>: i32) {}",
             |parser| parser.parse_decl(),
             "expected parameter name",
         );
@@ -468,7 +482,7 @@ mod tests {
     #[test]
     fn test_expected_colon_error() {
         parse_failure(
-            "func main(x <ERROR>i32) {}",
+            "fun main(x <ERROR>i32) {}",
             |parser| parser.parse_decl(),
             "expected colon",
         );
@@ -477,7 +491,7 @@ mod tests {
     #[test]
     fn test_expected_function_name_error() {
         parse_failure(
-            "func <ERROR>() {}",
+            "fun <ERROR>() {}",
             |parser| parser.parse_decl(),
             "expected function name",
         );
@@ -486,7 +500,7 @@ mod tests {
     #[test]
     fn test_expected_opening_parenthesis_error() {
         parse_failure(
-            "func main <ERROR>{}",
+            "fun main <ERROR>{}",
             |parser| parser.parse_decl(),
             "expected opening parenthesis",
         );
@@ -504,7 +518,7 @@ mod tests {
     #[test]
     fn test_expected_module_declaration_error() {
         parse_failure(
-            "<ERROR>func main() {}",
+            "<ERROR>fun main() {}",
             |parser| parser.parse_file(),
             "expected module declaration",
         );

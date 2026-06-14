@@ -5,7 +5,7 @@ pub enum Token {
     Ident(String),
     Int(i64),
     Float(f64),
-    Str(String),
+    String(String),
     Keyword(Keyword),
     Symbol(Symbol),
     Invalid(char),
@@ -15,10 +15,11 @@ pub enum Token {
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     Var,
-    Func,
+    Fun,
     True,
     False,
     Module,
+    Return,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]

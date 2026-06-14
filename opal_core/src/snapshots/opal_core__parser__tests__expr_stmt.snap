@@ -4,7 +4,7 @@ expression: "parse_successful(\"foo(1);\", |parser| parser.parse_stmt())"
 ---
 Expr {
     expr: Call {
-        func: Var {
+        fun: Var {
             name: "foo",
             span: Span {
                 start: 0,
