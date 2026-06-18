@@ -1,4 +1,4 @@
-use crate::{ast::InfixOp, ty::NumericType};
+use crate::{ast::InfixOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalId(pub u32);

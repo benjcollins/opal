@@ -19,22 +19,22 @@ pub struct Codegen {
 impl Codegen {
     pub fn gen_expr_operand(&mut self, expr: &ir::Expr) -> Operand {
         match expr {
-            ir::Expr::Bool(value) => Operand::ImmValue(Value::bool(*value)),
-            ir::Expr::Int(value) => Operand::ImmValue(Value::int(*value)),
-            ir::Expr::Float(value) => Operand::ImmValue(Value::float(*value)),
+            ir::Expr::Bool(value) => Value::bool(*value).into(),
+            ir::Expr::Int(value) => Value::int(*value).into(),
+            ir::Expr::Float(value) => Value::float(*value).into(),
             ir::Expr::String(_) => todo!(),
-            ir::Expr::Unit => Operand::ImmValue(Value::UNIT),
-            ir::Expr::Local(id) => Operand::Reg(*self.local_map.get(id).unwrap()),
+            ir::Expr::Unit => Value::UNIT.into(),
+            ir::Expr::Local(id) => (*self.local_map.get(id).unwrap()).into(),
             ir::Expr::Global(id) => {
                 let slot = self.bytecode.alloc_imm_slot();
                 self.global_imm_slots.push((id.clone(), slot));
-                Operand::ImmSlot(slot)
+                slot.into()
             }
             _ => {
                 let reg = self.alloc_reg();
                 self.gen_expr_acc(expr);
                 self.bytecode.st(reg);
-                Operand::Reg(reg)
+                reg.into()
             }
         }
     }

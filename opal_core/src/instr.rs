@@ -28,6 +28,8 @@ pub enum Opcode {
     DivFloatReg,
     DivFloatImm,
 
+    PushKind,
+
     Call,
     Ret,
 }
@@ -43,4 +45,13 @@ pub enum Operand {
     Reg(Reg),
     ImmValue(Value),
     ImmSlot(ImmSlot),
+}
+
+pub enum Kind {
+    Int,
+    Float,
+    Bool,
+    String,
+    Unit,
+    Object,
 }

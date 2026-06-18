@@ -10,4 +10,7 @@ fun test() -> Bool {
 
 
     sql.query(typeof(Entity), "");
+
+    var cache = lru.init(typeof(Entity));
+
 }
