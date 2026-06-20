@@ -1,4 +1,4 @@
-use crate::{ast::InfixOp};
+use crate::ast::InfixOp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalId(pub u32);
@@ -16,7 +16,6 @@ pub enum Expr {
     Infix {
         left: Box<Expr>,
         op: InfixOp,
-        ty: NumericType,
         right: Box<Expr>,
     },
 }

@@ -4,7 +4,7 @@ use crate::{
     ast, ir,
     lexer::Span,
     scoped_map::ScopedMap,
-    ty::{MetaNumericTypeId, MetaTypeId, NumericType, Type},
+    ty::{MetaType, Type, TypeContext},
 };
 
 pub struct Analyzer<'a> {
@@ -14,8 +14,7 @@ pub struct Analyzer<'a> {
     pub next_meta_id: u32,
     pub next_local_id: u32,
     pub return_ty: Type,
-    pub type_map: HashMap<MetaTypeId, Type>,
-    pub numeric_type_map: HashMap<MetaNumericTypeId, NumericType>,
+    pub type_context: TypeContext,
 }
 
 #[derive(Debug, Clone)]
@@ -29,7 +28,7 @@ pub enum Fallthrough {
     False,
     AllOf(Vec<Fallthrough>),
     AnyOf(Vec<Fallthrough>),
-    NotVoid(Type),
+    NotVoid(MetaType),
 }
 
 impl<'a> Analyzer<'a> {
@@ -41,12 +40,13 @@ impl<'a> Analyzer<'a> {
             next_meta_id: 0,
             next_local_id: 0,
             return_ty,
-            type_map: HashMap::new(),
-            numeric_type_map: HashMap::new(),
         }
     }
 
-    pub fn analyze_block(&mut self, block: &ast::Block) -> Result<(ir::Block, Fallthrough), TypeError> {
+    pub fn analyze_block(
+        &mut self,
+        block: &ast::Block,
+    ) -> Result<(ir::Block, Fallthrough), TypeError> {
         let mut stmts = Vec::new();
         let mut fallthroughs = Vec::new();
         for stmt in &block.stmts {
@@ -62,7 +62,13 @@ impl<'a> Analyzer<'a> {
             ast::Stmt::VarDecl { name, value, .. } => {
                 let (value_ty, value) = self.analyze_expr(value)?;
                 let local_id = self.decl_local_var(name.clone(), value_ty);
-                (ir::Stmt::VarDecl { var: local_id, value }, Fallthrough::True)
+                (
+                    ir::Stmt::VarDecl {
+                        var: local_id,
+                        value,
+                    },
+                    Fallthrough::True,
+                )
             }
             ast::Stmt::Expr { expr, .. } => {
                 let (expr_ty, expr) = self.analyze_expr(expr)?;
@@ -84,8 +90,8 @@ impl<'a> Analyzer<'a> {
     pub fn analyze_expr(&mut self, expr: &ast::Expr) -> Result<(Type, ir::Expr), TypeError> {
         Ok(match expr {
             ast::Expr::Bool { value, .. } => (Type::Bool, ir::Expr::Bool(*value)),
-            ast::Expr::Int { value, .. } => (Type::Numeric(NumericType::Int), ir::Expr::Int(*value)),
-            ast::Expr::Float { value, .. } => (Type::Numeric(NumericType::Float), ir::Expr::Float(*value)),
+            ast::Expr::Int { value, .. } => (Type::Int, ir::Expr::Int(*value)),
+            ast::Expr::Float { value, .. } => (Type::Float, ir::Expr::Float(*value)),
             ast::Expr::String { value, .. } => (Type::String, ir::Expr::String(value.clone())),
             ast::Expr::Unit { .. } => (Type::Unit, ir::Expr::Unit),
             ast::Expr::Var { name, span } => {
@@ -165,9 +171,16 @@ impl<'a> Analyzer<'a> {
         NumericType::Meta(MetaNumericTypeId(id))
     }
 
-    fn unify_numeric(&mut self, a: &NumericType, b: &NumericType, span: Span) -> Result<(), TypeError> {
+    fn unify_numeric(
+        &mut self,
+        a: &NumericType,
+        b: &NumericType,
+        span: Span,
+    ) -> Result<(), TypeError> {
         match (a, b) {
-            (NumericType::Int, NumericType::Int) | (NumericType::Float, NumericType::Float) => Ok(()),
+            (NumericType::Int, NumericType::Int) | (NumericType::Float, NumericType::Float) => {
+                Ok(())
+            }
             (NumericType::Meta(meta_id), other_ty) | (other_ty, NumericType::Meta(meta_id)) => {
                 match self.numeric_type_map.entry(*meta_id) {
                     Entry::Occupied(entry) => {
@@ -206,16 +219,18 @@ impl<'a> Analyzer<'a> {
                 self.unify(a_returns, b_returns, span)
             }
             (Type::Numeric(a), Type::Numeric(b)) => self.unify_numeric(a, b, span),
-            (Type::Meta(meta_id), other_ty) | (other_ty, Type::Meta(meta_id)) => match self.type_map.entry(*meta_id) {
-                Entry::Occupied(entry) => {
-                    let ty = entry.get().clone();
-                    self.unify(&ty, other_ty, span)
+            (Type::Meta(meta_id), other_ty) | (other_ty, Type::Meta(meta_id)) => {
+                match self.type_map.entry(*meta_id) {
+                    Entry::Occupied(entry) => {
+                        let ty = entry.get().clone();
+                        self.unify(&ty, other_ty, span)
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(other_ty.clone());
+                        Ok(())
+                    }
                 }
-                Entry::Vacant(entry) => {
-                    entry.insert(other_ty.clone());
-                    Ok(())
-                }
-            },
+            }
             _ => Err(TypeError {
                 message: "unable to unify types",
                 span,
