@@ -1,23 +1,26 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, convert::Infallible};
 
 use derive_more::From;
 
 #[derive(Debug, Clone)]
-pub enum Type {
+pub enum Type<T> {
     Unit,
     Bool,
     Void,
     Int,
     Float,
-    Fun(Vec<MetaType>, Box<MetaType>),
+    String,
+    Fun(Vec<T>, Box<T>),
 }
 
 #[derive(Debug, Clone, From)]
 pub enum MetaType {
-    Type(Type),
+    Type(Type<MetaType>),
     Meta(Meta),
     NumericMeta(NumericMeta),
 }
+
+pub struct CanonType(Type<CanonType>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericType {
@@ -45,6 +48,62 @@ pub struct TypeContext {
 
 pub struct TypeError;
 
+impl<T> Type<T> {
+    pub fn try_map<U, E>(&self, f: impl Fn(&T) -> Result<U, E> + Copy) -> Result<Type<U>, E> {
+        match self {
+            Type::Unit => Ok(Type::Unit),
+            Type::Bool => Ok(Type::Bool),
+            Type::Void => Ok(Type::Void),
+            Type::Int => Ok(Type::Int),
+            Type::Float => Ok(Type::Float),
+            Type::String => Ok(Type::String),
+            Type::Fun(params, returns) => {
+                let params = params.iter().map(f).collect::<Result<Vec<_>, _>>()?;
+                let returns = f(returns)?;
+                Ok(Type::Fun(params, Box::new(returns)))
+            }
+        }
+    }
+    pub fn map<U>(&self, f: impl Fn(&T) -> U + Copy) -> Type<U> {
+        match self.try_map::<_, Infallible>(|ty| Ok(f(ty))) {
+            Ok(ty) => ty,
+            Err(inf) => match inf {},
+        }
+    }
+}
+
+fn unify_types<A, B>(
+    a: &Type<A>,
+    b: &Type<B>,
+    mut unify_fn: impl FnMut(&A, &B) -> Result<(), TypeError>,
+) -> Result<(), TypeError> {
+    match (a, b) {
+        (Type::Unit, Type::Unit)
+        | (Type::Bool, Type::Bool)
+        | (Type::Void, Type::Void)
+        | (Type::Int, Type::Int)
+        | (Type::Float, Type::Float)
+        | (Type::String, Type::String) => (),
+        (Type::Fun(a_params, a_returns), Type::Fun(b_params, b_returns)) => {
+            if a_params.len() != b_params.len() {
+                return Err(TypeError);
+            }
+            for i in 0..a_params.len() {
+                unify_fn(&a_params[i], &b_params[i])?;
+            }
+            unify_fn(a_returns, b_returns)?;
+        }
+        _ => return Err(TypeError),
+    };
+    Ok(())
+}
+
+impl From<&CanonType> for MetaType {
+    fn from(value: &CanonType) -> Self {
+        MetaType::Type(value.0.map(|ty| ty.into()))
+    }
+}
+
 impl TypeContext {
     pub fn new() -> TypeContext {
         TypeContext {
@@ -63,6 +122,33 @@ impl TypeContext {
         self.next_meta += 1;
         meta
     }
+    fn unify_meta_type_with_canon_type(
+        &self,
+        a: &MetaType,
+        b: &CanonType,
+        substs: &mut HashMap<Meta, MetaType>,
+        numeric_substs: &mut HashMap<NumericMeta, NumericMetaType>,
+    ) -> Result<(), TypeError> {
+        match a {
+            MetaType::Type(ty) => {
+                unify_types(ty, &b.0, |a, b| {
+                    self.unify_meta_type_with_canon_type(a, b, substs, numeric_substs)
+                })?;
+            }
+            MetaType::Meta(meta) => {
+                substs.insert(*meta, b.into());
+            }
+            MetaType::NumericMeta(meta) => {
+                let numeric_ty = match b.0 {
+                    Type::Int => NumericType::Int,
+                    Type::Float => NumericType::Float,
+                    _ => return Err(TypeError),
+                };
+                numeric_substs.insert(*meta, numeric_ty.into());
+            }
+        };
+        Ok(())
+    }
     fn unify_meta_types(
         &self,
         a: &MetaType,
@@ -72,7 +158,9 @@ impl TypeContext {
     ) -> Result<(), TypeError> {
         match (a, b) {
             (MetaType::Type(a), MetaType::Type(b)) => {
-                self.unify_types(a, b, substs, numeric_substs)?;
+                unify_types(a, b, |a, b| {
+                    self.unify_meta_types(a, b, substs, numeric_substs)
+                })?;
             }
             (MetaType::Type(ty), MetaType::Meta(meta))
             | (MetaType::Meta(meta), MetaType::Type(ty)) => {
@@ -100,32 +188,6 @@ impl TypeContext {
         }
         Ok(())
     }
-    fn unify_types(
-        &self,
-        a: &Type,
-        b: &Type,
-        substs: &mut HashMap<Meta, MetaType>,
-        numeric_substs: &mut HashMap<NumericMeta, NumericMetaType>,
-    ) -> Result<(), TypeError> {
-        match (a, b) {
-            (Type::Unit, Type::Unit)
-            | (Type::Bool, Type::Bool)
-            | (Type::Void, Type::Void)
-            | (Type::Int, Type::Int)
-            | (Type::Float, Type::Float) => (),
-            (Type::Fun(a_params, a_returns), Type::Fun(b_params, b_returns)) => {
-                if a_params.len() != b_params.len() {
-                    return Err(TypeError);
-                }
-                for i in 0..a_params.len() {
-                    self.unify_meta_types(&a_params[i], &b_params[i], substs, numeric_substs)?;
-                }
-                self.unify_meta_types(a_returns, b_returns, substs, numeric_substs)?;
-            }
-            _ => return Err(TypeError),
-        };
-        Ok(())
-    }
     pub fn unify(&mut self, a: &MetaType, b: &MetaType) -> Result<(), TypeError> {
         let mut substs = HashMap::new();
         let mut numeric_substs = HashMap::new();
@@ -133,9 +195,24 @@ impl TypeContext {
         for (meta, ty) in substs {
             self.type_map.insert(meta, ty);
         }
+        for (meta, ty) in numeric_substs {
+            self.numeric_type_map.insert(meta, ty);
+        }
         Ok(())
     }
-    pub fn get_type<'a>(&'a self, ty: &'a MetaType) -> Option<Cow<'a, Type>> {
+    pub fn unify_with_canon(&mut self, a: &MetaType, b: &CanonType) -> Result<(), TypeError> {
+        let mut substs = HashMap::new();
+        let mut numeric_substs = HashMap::new();
+        self.unify_meta_type_with_canon_type(a, b, &mut substs, &mut numeric_substs)?;
+        for (meta, ty) in substs {
+            self.type_map.insert(meta, ty);
+        }
+        for (meta, ty) in numeric_substs {
+            self.numeric_type_map.insert(meta, ty);
+        }
+        Ok(())
+    }
+    pub fn get_type<'a>(&'a self, ty: &'a MetaType) -> Option<Cow<'a, Type<MetaType>>> {
         match ty {
             MetaType::Type(ty) => Some(Cow::Borrowed(ty)),
             MetaType::Meta(meta) => self.type_map.get(meta).and_then(|ty| self.get_type(ty)),
@@ -143,12 +220,11 @@ impl TypeContext {
                 .numeric_type_map
                 .get(meta)
                 .and_then(|ty| self.get_numeric_type(ty))
-                .map(|ty| {
-                    Cow::Owned(match ty {
-                        NumericType::Int => Type::Int,
-                        NumericType::Float => Type::Float,
-                    })
-                }),
+                .map(|ty| match ty {
+                    NumericType::Int => Type::Int,
+                    NumericType::Float => Type::Float,
+                })
+                .map(Cow::Owned),
         }
     }
     pub fn get_numeric_type(&self, ty: &NumericMetaType) -> Option<NumericType> {
@@ -158,6 +234,27 @@ impl TypeContext {
                 .numeric_type_map
                 .get(meta)
                 .and_then(|ty| self.get_numeric_type(ty)),
+        }
+    }
+    pub fn get_canon_type(&self, ty: &MetaType) -> Option<CanonType> {
+        match ty {
+            MetaType::Type(ty) => ty
+                .try_map(|ty| self.get_canon_type(ty).ok_or(()))
+                .map(CanonType)
+                .ok(),
+            MetaType::Meta(meta) => self
+                .type_map
+                .get(meta)
+                .and_then(|ty| self.get_canon_type(ty)),
+            MetaType::NumericMeta(meta) => self
+                .numeric_type_map
+                .get(meta)
+                .and_then(|ty| self.get_numeric_type(ty))
+                .map(|ty| match ty {
+                    NumericType::Int => Type::Int,
+                    NumericType::Float => Type::Float,
+                })
+                .map(CanonType),
         }
     }
 }

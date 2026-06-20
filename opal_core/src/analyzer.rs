@@ -1,20 +1,19 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 
 use crate::{
     ast, ir,
     lexer::Span,
     scoped_map::ScopedMap,
-    ty::{MetaType, Type, TypeContext},
+    ty::{CanonType, MetaType, Type, TypeContext},
 };
 
 pub struct Analyzer<'a> {
     pub var_map: ScopedMap<String, ir::LocalId>,
-    pub var_types: HashMap<ir::LocalId, Type>,
-    pub globals: &'a HashMap<String, Type>,
-    pub next_meta_id: u32,
-    pub next_local_id: u32,
-    pub return_ty: Type,
+    pub var_types: HashMap<ir::LocalId, MetaType>,
+    pub globals: &'a HashMap<String, CanonType>,
+    pub return_ty: CanonType,
     pub type_context: TypeContext,
+    pub next_local_id: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -32,14 +31,14 @@ pub enum Fallthrough {
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn new(globals: &'a HashMap<String, Type>, return_ty: Type) -> Analyzer<'a> {
+    pub fn new(globals: &'a HashMap<String, CanonType>, return_ty: CanonType) -> Analyzer<'a> {
         Analyzer {
             var_map: ScopedMap::new(),
             var_types: HashMap::new(),
             globals,
-            next_meta_id: 0,
-            next_local_id: 0,
             return_ty,
+            type_context: TypeContext::new(),
+            next_local_id: 0,
         }
     }
 
@@ -77,7 +76,8 @@ impl<'a> Analyzer<'a> {
             ast::Stmt::Return { expr, return_, .. } => {
                 let expr = if let Some(expr) = expr {
                     let (expr_ty, expr) = self.analyze_expr(expr)?;
-                    self.unify(&expr_ty, &self.return_ty.clone(), *return_)?;
+                    self.type_context
+                        .unify_with_canon(expr_ty, &self.return_ty)?;
                     Some(expr)
                 } else {
                     None
@@ -87,11 +87,11 @@ impl<'a> Analyzer<'a> {
         })
     }
 
-    pub fn analyze_expr(&mut self, expr: &ast::Expr) -> Result<(Type, ir::Expr), TypeError> {
+    pub fn analyze_expr(&mut self, expr: &ast::Expr) -> Result<(MetaType, ir::Expr), TypeError> {
         Ok(match expr {
-            ast::Expr::Bool { value, .. } => (Type::Bool, ir::Expr::Bool(*value)),
-            ast::Expr::Int { value, .. } => (Type::Int, ir::Expr::Int(*value)),
-            ast::Expr::Float { value, .. } => (Type::Float, ir::Expr::Float(*value)),
+            ast::Expr::Bool { value, .. } => (Type::Bool.into(), ir::Expr::Bool(*value)),
+            ast::Expr::Int { value, .. } => (Type::Int.into(), ir::Expr::Int(*value)),
+            ast::Expr::Float { value, .. } => (Type::Float.into(), ir::Expr::Float(*value)),
             ast::Expr::String { value, .. } => (Type::String, ir::Expr::String(value.clone())),
             ast::Expr::Unit { .. } => (Type::Unit, ir::Expr::Unit),
             ast::Expr::Var { name, span } => {
@@ -157,92 +157,6 @@ impl<'a> Analyzer<'a> {
         self.var_map.insert(name.clone(), local);
         self.var_types.insert(local, ty);
         local
-    }
-
-    fn fresh_meta_type(&mut self) -> Type {
-        let id = self.next_meta_id;
-        self.next_meta_id += 1;
-        Type::Meta(MetaTypeId(id))
-    }
-
-    fn fresh_numeric_meta_type(&mut self) -> NumericType {
-        let id = self.next_meta_id;
-        self.next_meta_id += 1;
-        NumericType::Meta(MetaNumericTypeId(id))
-    }
-
-    fn unify_numeric(
-        &mut self,
-        a: &NumericType,
-        b: &NumericType,
-        span: Span,
-    ) -> Result<(), TypeError> {
-        match (a, b) {
-            (NumericType::Int, NumericType::Int) | (NumericType::Float, NumericType::Float) => {
-                Ok(())
-            }
-            (NumericType::Meta(meta_id), other_ty) | (other_ty, NumericType::Meta(meta_id)) => {
-                match self.numeric_type_map.entry(*meta_id) {
-                    Entry::Occupied(entry) => {
-                        let ty = entry.get().clone();
-                        self.unify_numeric(&ty, other_ty, span)
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(other_ty.clone());
-                        Ok(())
-                    }
-                }
-            }
-            _ => Err(TypeError {
-                message: "unable to unify numeric types",
-                span,
-            }),
-        }
-    }
-
-    fn unify(&mut self, a: &Type, b: &Type, span: Span) -> Result<(), TypeError> {
-        match (a, b) {
-            (Type::Unit, Type::Unit)
-            | (Type::String, Type::String)
-            | (Type::Void, Type::Void)
-            | (Type::Bool, Type::Bool) => Ok(()),
-            (Type::Fun(a_params, a_returns), Type::Fun(b_params, b_returns)) => {
-                if a_params.len() != b_params.len() {
-                    return Err(TypeError {
-                        message: "functions have different numbers of parameters",
-                        span,
-                    });
-                }
-                for i in 0..a_params.len() {
-                    self.unify(&a_params[i], &b_params[i], span)?;
-                }
-                self.unify(a_returns, b_returns, span)
-            }
-            (Type::Numeric(a), Type::Numeric(b)) => self.unify_numeric(a, b, span),
-            (Type::Meta(meta_id), other_ty) | (other_ty, Type::Meta(meta_id)) => {
-                match self.type_map.entry(*meta_id) {
-                    Entry::Occupied(entry) => {
-                        let ty = entry.get().clone();
-                        self.unify(&ty, other_ty, span)
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(other_ty.clone());
-                        Ok(())
-                    }
-                }
-            }
-            _ => Err(TypeError {
-                message: "unable to unify types",
-                span,
-            }),
-        }
-    }
-
-    pub fn canonical(&self, ty: &Type) -> Type {
-        match ty {
-            Type::Meta(id) => self.canonical(self.type_map.get(id).unwrap()),
-            ty => ty.clone(),
-        }
     }
 
     pub fn is_fallthrough(&self, fallthrough: &Fallthrough) -> bool {
