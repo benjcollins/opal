@@ -1,7 +1,9 @@
 use derive_more::From;
+use strum::FromRepr;
 
 use crate::value::Value;
 
+#[derive(FromRepr)]
 #[repr(u8)]
 pub enum Opcode {
     LoadReg,

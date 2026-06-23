@@ -10,3 +10,4 @@ pub mod scoped_map;
 pub mod token;
 pub mod ty;
 pub mod value;
+pub mod vm;
