@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast, ir,
+    ast,
+    ir::{self, Expr},
     lexer::Span,
     scoped_map::ScopedMap,
     ty::{CanonType, MetaType, Type, TypeContext},
 };
 
-pub struct Analyzer<'a> {
+pub struct Analyzer<'a, 'b> {
     pub var_map: ScopedMap<String, ir::LocalId>,
     pub var_types: HashMap<ir::LocalId, MetaType>,
     pub globals: &'a HashMap<String, CanonType>,
     pub return_ty: CanonType,
-    pub type_context: TypeContext,
+    pub type_context: &'b mut TypeContext,
     pub next_local_id: u32,
 }
 
@@ -30,14 +31,18 @@ pub enum Fallthrough {
     NotVoid(MetaType),
 }
 
-impl<'a> Analyzer<'a> {
-    pub fn new(globals: &'a HashMap<String, CanonType>, return_ty: CanonType) -> Analyzer<'a> {
+impl<'a, 'b> Analyzer<'a, 'b> {
+    pub fn new(
+        globals: &'a HashMap<String, CanonType>,
+        return_ty: CanonType,
+        type_context: &'b mut TypeContext,
+    ) -> Analyzer<'a, 'b> {
         Analyzer {
             var_map: ScopedMap::new(),
             var_types: HashMap::new(),
             globals,
             return_ty,
-            type_context: TypeContext::new(),
+            type_context,
             next_local_id: 0,
         }
     }
@@ -60,14 +65,9 @@ impl<'a> Analyzer<'a> {
         Ok(match stmt {
             ast::Stmt::VarDecl { name, value, .. } => {
                 let (value_ty, value) = self.analyze_expr(value)?;
-                let local_id = self.decl_local_var(name.clone(), value_ty);
-                (
-                    ir::Stmt::VarDecl {
-                        var: local_id,
-                        value,
-                    },
-                    Fallthrough::True,
-                )
+                let local = self.decl_local_var(name.clone(), value_ty);
+                let var_decl = ir::Stmt::VarDecl { local, value };
+                (var_decl, Fallthrough::True)
             }
             ast::Stmt::Expr { expr, .. } => {
                 let (expr_ty, expr) = self.analyze_expr(expr)?;
@@ -77,10 +77,14 @@ impl<'a> Analyzer<'a> {
                 let expr = if let Some(expr) = expr {
                     let (expr_ty, expr) = self.analyze_expr(expr)?;
                     self.type_context
-                        .unify_with_canon(expr_ty, &self.return_ty)?;
-                    Some(expr)
+                        .unify_with_canon(&expr_ty, &self.return_ty)
+                        .map_err(|_| TypeError {
+                            message: "incorrect return type",
+                            span: *return_,
+                        })?;
+                    expr
                 } else {
-                    None
+                    Expr::Unit
                 };
                 (ir::Stmt::Return(expr), Fallthrough::False)
             }
@@ -92,14 +96,16 @@ impl<'a> Analyzer<'a> {
             ast::Expr::Bool { value, .. } => (Type::Bool.into(), ir::Expr::Bool(*value)),
             ast::Expr::Int { value, .. } => (Type::Int.into(), ir::Expr::Int(*value)),
             ast::Expr::Float { value, .. } => (Type::Float.into(), ir::Expr::Float(*value)),
-            ast::Expr::String { value, .. } => (Type::String, ir::Expr::String(value.clone())),
-            ast::Expr::Unit { .. } => (Type::Unit, ir::Expr::Unit),
+            ast::Expr::String { value, .. } => {
+                (Type::String.into(), ir::Expr::String(value.clone()))
+            }
+            ast::Expr::Unit { .. } => (Type::Unit.into(), ir::Expr::Unit),
             ast::Expr::Var { name, span } => {
                 if let Some(var_id) = self.var_map.get(name) {
                     let ty = self.var_types.get(var_id).unwrap().clone();
                     (ty, ir::Expr::Local(*var_id))
                 } else if let Some(ty) = self.globals.get(name) {
-                    (ty.clone(), ir::Expr::Global(name.clone()))
+                    (ty.into(), ir::Expr::Global(name.clone()))
                 } else {
                     return Err(TypeError {
                         span: *span,
@@ -121,11 +127,16 @@ impl<'a> Analyzer<'a> {
                     arg_tys.push(arg_ty);
                     arg_irs.push(arg_ir);
                 }
-                let return_ty = self.fresh_meta_type();
-                let fun_expected_ty = Type::Fun(arg_tys, Box::new(return_ty.clone()));
+                let return_ty = self.type_context.fresh_meta();
+                let fun_expected_ty = Type::Fun(arg_tys, Box::new(return_ty.into())).into();
                 let call_ir = ir::Expr::Call(Box::new(fun_ir), arg_irs);
-                self.unify(&fun_ty, &fun_expected_ty, open_paren.to(close_paren))?;
-                (return_ty, call_ir)
+                self.type_context
+                    .unify(&fun_ty, &fun_expected_ty)
+                    .map_err(|_| TypeError {
+                        message: "incorrect function signature",
+                        span: open_paren.to(close_paren),
+                    })?;
+                (return_ty.into(), call_ir)
             }
             ast::Expr::Parens { expr, .. } => self.analyze_expr(expr)?,
             ast::Expr::Infix {
@@ -137,21 +148,31 @@ impl<'a> Analyzer<'a> {
             } => {
                 let (left_ty, left_ir) = self.analyze_expr(left)?;
                 let (right_ty, right_ir) = self.analyze_expr(right)?;
-                let ty = self.fresh_numeric_meta_type();
-                self.unify(&Type::Numeric(ty.clone()), &left_ty, *op_span)?;
-                self.unify(&Type::Numeric(ty.clone()), &right_ty, *op_span)?;
+                let ty = self.type_context.fresh_numeric_meta();
+                self.type_context
+                    .unify(&ty.into(), &left_ty)
+                    .map_err(|_| TypeError {
+                        message: "incorrect numeric type",
+                        span: *op_span,
+                    })?;
+                self.type_context
+                    .unify(&ty.into(), &right_ty)
+                    .map_err(|_| TypeError {
+                        message: "incorrect numeric type",
+                        span: *op_span,
+                    })?;
                 let infix_ir = ir::Expr::Infix {
                     left: Box::new(left_ir),
                     op: *op,
-                    ty: ty.clone(),
+                    ty: ty.into(),
                     right: Box::new(right_ir),
                 };
-                (Type::Numeric(ty), infix_ir)
+                (ty.into(), infix_ir)
             }
         })
     }
 
-    pub fn decl_local_var(&mut self, name: String, ty: Type) -> ir::LocalId {
+    pub fn decl_local_var(&mut self, name: String, ty: MetaType) -> ir::LocalId {
         let local = ir::LocalId(self.next_local_id);
         self.next_local_id += 1;
         self.var_map.insert(name.clone(), local);
@@ -165,7 +186,10 @@ impl<'a> Analyzer<'a> {
             Fallthrough::False => false,
             Fallthrough::AllOf(fallthroughs) => fallthroughs.iter().all(|f| self.is_fallthrough(f)),
             Fallthrough::AnyOf(fallthroughs) => fallthroughs.iter().any(|f| self.is_fallthrough(f)),
-            Fallthrough::NotVoid(ty) => !matches!(self.canonical(ty), Type::Void),
+            Fallthrough::NotVoid(ty) => match &*self.type_context.get_type(ty).unwrap() {
+                Type::Void => false,
+                _ => false,
+            },
         }
     }
 }

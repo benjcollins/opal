@@ -5,18 +5,31 @@ use crate::{
     bytecode::Bytecode,
     instr::{ImmSlot, Operand, Reg},
     ir,
-    ty::NumericType,
+    ty::{NumericType, TypeContext},
     value::Value,
 };
 
-pub struct Codegen {
+pub struct Codegen<'a> {
     bytecode: Bytecode,
     local_map: HashMap<ir::LocalId, Reg>,
     global_imm_slots: Vec<(String, ImmSlot)>,
     next_reg: u8,
+    type_context: &'a TypeContext,
+    scopes: Vec<u8>,
 }
 
-impl Codegen {
+impl<'a> Codegen<'a> {
+    pub fn new(type_context: &'a TypeContext) -> Codegen<'a> {
+        Codegen {
+            bytecode: Bytecode::new(),
+            local_map: HashMap::new(),
+            global_imm_slots: vec![],
+            next_reg: 0,
+            type_context,
+            scopes: vec![],
+        }
+    }
+
     pub fn gen_expr_operand(&mut self, expr: &ir::Expr) -> Operand {
         match expr {
             ir::Expr::Bool(value) => Value::bool(*value).into(),
@@ -33,13 +46,14 @@ impl Codegen {
             _ => {
                 let reg = self.alloc_reg();
                 self.gen_expr_acc(expr);
-                self.bytecode.st(reg);
+                self.bytecode.store(reg);
                 reg.into()
             }
         }
     }
 
     pub fn gen_expr_acc(&mut self, expr: &ir::Expr) {
+        self.enter_scope();
         match expr {
             ir::Expr::Call(fun, args) => {
                 let fun = self.gen_expr_operand(fun);
@@ -47,12 +61,18 @@ impl Codegen {
                 for arg in args {
                     let reg = self.alloc_reg();
                     self.gen_expr_acc(arg);
-                    self.bytecode.st(reg);
+                    self.bytecode.store(reg);
                 }
-                self.bytecode.ld(fun);
+                self.bytecode.load(fun);
                 self.bytecode.call(args_base);
             }
-            ir::Expr::Infix { left, op, ty, right } => {
+            ir::Expr::Infix {
+                left,
+                op,
+                ty,
+                right,
+            } => {
+                let ty = self.type_context.get_numeric_type(ty).unwrap();
                 let left_operand = self.gen_expr_operand(left);
                 self.gen_expr_acc(right);
                 match (op, ty) {
@@ -64,25 +84,50 @@ impl Codegen {
                     (InfixOp::Mul, NumericType::Float) => self.bytecode.fmul(left_operand),
                     (InfixOp::Div, NumericType::Int) => self.bytecode.idiv(left_operand),
                     (InfixOp::Div, NumericType::Float) => self.bytecode.fdiv(left_operand),
-                    (_, NumericType::Meta(_)) => panic!(),
                 }
             }
             _ => {
                 let operand = self.gen_expr_operand(expr);
-                self.bytecode.ld(operand);
+                self.bytecode.load(operand);
             }
         }
+        self.exit_scope();
     }
 
     pub fn gen_stmt(&mut self, stmt: &ir::Stmt) {
         match stmt {
-            ir::Stmt::VarDecl { var, value } => todo!(),
-            ir::Stmt::Expr(expr) => todo!(),
-            ir::Stmt::Return(expr) => todo!(),
+            ir::Stmt::VarDecl { local, value } => {
+                let reg = self.alloc_reg();
+                self.gen_expr_acc(value);
+                self.bytecode.store(reg);
+            }
+            ir::Stmt::Expr(expr) => {
+                self.gen_expr_acc(expr);
+            }
+            ir::Stmt::Return(expr) => {
+                self.gen_expr_acc(expr);
+                self.bytecode.ret();
+            }
         }
     }
 
+    pub fn gen_block(&mut self, block: &ir::Block) {
+        for stmt in &block.stmts {
+            self.gen_stmt(stmt);
+        }
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(self.next_reg);
+    }
+
+    fn exit_scope(&mut self) {
+        self.next_reg = self.scopes.pop().unwrap();
+    }
+
     fn alloc_reg(&mut self) -> Reg {
-        todo!()
+        let reg = Reg(self.next_reg);
+        self.next_reg += 1;
+        reg
     }
 }

@@ -1,4 +1,4 @@
-use crate::ast::InfixOp;
+use crate::{ast::InfixOp, ty::NumericMetaType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalId(pub u32);
@@ -16,15 +16,16 @@ pub enum Expr {
     Infix {
         left: Box<Expr>,
         op: InfixOp,
+        ty: NumericMetaType,
         right: Box<Expr>,
     },
 }
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    VarDecl { var: LocalId, value: Expr },
+    VarDecl { local: LocalId, value: Expr },
     Expr(Expr),
-    Return(Option<Expr>),
+    Return(Expr),
 }
 
 #[derive(Debug, Clone)]

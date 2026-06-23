@@ -19,12 +19,21 @@ macro_rules! instr {
                 Operand::ImmValue(value) => (Opcode::$imm_opcode, self.get_value_imm_slot(value).0),
                 Operand::ImmSlot(slot) => (Opcode::$imm_opcode, slot.0),
             };
-            self.buffer.push(u16::from_be_bytes([opcode as u8, operand]));
+            self.buffer
+                .push(u16::from_be_bytes([opcode as u8, operand]));
         }
     };
 }
 
 impl Bytecode {
+    pub fn new() -> Bytecode {
+        Bytecode {
+            buffer: vec![],
+            imm_slots: vec![],
+            imm_slot_value_map: HashMap::new(),
+        }
+    }
+
     pub fn get_value_imm_slot(&mut self, value: Value) -> ImmSlot {
         match self.imm_slot_value_map.entry(value) {
             Entry::Occupied(entry) => *entry.get(),
@@ -43,19 +52,21 @@ impl Bytecode {
         slot
     }
 
-    pub fn st(&mut self, reg: Reg) {
-        self.buffer.push(u16::from_be_bytes([Opcode::StoreReg as u8, reg.0]));
+    pub fn store(&mut self, reg: Reg) {
+        self.buffer
+            .push(u16::from_be_bytes([Opcode::StoreReg as u8, reg.0]));
     }
 
     pub fn call(&mut self, base: u8) {
-        self.buffer.push(u16::from_be_bytes([Opcode::Call as u8, base]));
+        self.buffer
+            .push(u16::from_be_bytes([Opcode::Call as u8, base]));
     }
 
     pub fn ret(&mut self) {
         self.buffer.push(u16::from_be_bytes([Opcode::Ret as u8, 0]));
     }
 
-    instr!(ld, LoadImm, LoadReg);
+    instr!(load, LoadImm, LoadReg);
 
     instr!(iadd, AddIntImm, AddIntReg);
     instr!(fadd, AddFloatImm, AddFloatReg);

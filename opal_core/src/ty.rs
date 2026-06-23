@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, convert::Infallible};
 
 use derive_more::From;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<T> {
     Unit,
     Bool,
@@ -20,6 +20,7 @@ pub enum MetaType {
     NumericMeta(NumericMeta),
 }
 
+#[derive(Debug, Clone, From, PartialEq, Eq)]
 pub struct CanonType(Type<CanonType>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +29,7 @@ pub enum NumericType {
     Float,
 }
 
-#[derive(From)]
+#[derive(Debug, Clone, From)]
 pub enum NumericMetaType {
     Type(NumericType),
     Meta(NumericMeta),
