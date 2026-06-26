@@ -30,8 +30,7 @@ pub enum Opcode {
     DivFloatReg,
     DivFloatImm,
 
-    PushKind,
-
+    // PushKind,
     Call,
     Ret,
 }
@@ -43,9 +42,9 @@ pub struct Reg(pub u8);
 pub struct ImmSlot(pub u8);
 
 #[derive(Debug, Clone, Copy, From)]
-pub enum Operand {
+pub enum Operand<'a> {
     Reg(Reg),
-    ImmValue(Value),
+    ImmValue(Value<'a>),
     ImmSlot(ImmSlot),
 }
 

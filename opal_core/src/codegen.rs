@@ -9,8 +9,8 @@ use crate::{
     value::Value,
 };
 
-pub struct Codegen<'a> {
-    bytecode: Bytecode,
+pub struct Codegen<'a, 'b> {
+    bytecode: Bytecode<'b>,
     local_map: HashMap<ir::LocalId, Reg>,
     global_imm_slots: Vec<(String, ImmSlot)>,
     next_reg: u8,
@@ -18,8 +18,8 @@ pub struct Codegen<'a> {
     scopes: Vec<u8>,
 }
 
-impl<'a> Codegen<'a> {
-    pub fn new(type_context: &'a TypeContext) -> Codegen<'a> {
+impl<'a, 'b> Codegen<'a, 'b> {
+    pub fn new(type_context: &'a TypeContext) -> Codegen<'a, 'b> {
         Codegen {
             bytecode: Bytecode::new(),
             local_map: HashMap::new(),
@@ -30,11 +30,11 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    pub fn gen_expr_operand(&mut self, expr: &ir::Expr) -> Operand {
+    pub fn gen_expr_operand(&mut self, expr: &ir::Expr) -> Operand<'b> {
         match expr {
-            ir::Expr::Bool(value) => Value::bool(*value).into(),
-            ir::Expr::Int(value) => Value::int(*value).into(),
-            ir::Expr::Float(value) => Value::float(*value).into(),
+            ir::Expr::Bool(value) => Value::from_bool(*value).into(),
+            ir::Expr::Int(value) => Value::from_int(*value).into(),
+            ir::Expr::Float(value) => Value::from_float(*value).into(),
             ir::Expr::String(_) => todo!(),
             ir::Expr::Unit => Value::UNIT.into(),
             ir::Expr::Local(id) => (*self.local_map.get(id).unwrap()).into(),
@@ -100,6 +100,7 @@ impl<'a> Codegen<'a> {
                 let reg = self.alloc_reg();
                 self.gen_expr_acc(value);
                 self.bytecode.store(reg);
+                self.local_map.insert(*local, reg);
             }
             ir::Stmt::Expr(expr) => {
                 self.gen_expr_acc(expr);

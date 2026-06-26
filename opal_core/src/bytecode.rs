@@ -1,19 +1,27 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    cell::Cell,
+    collections::{HashMap, hash_map::Entry},
+};
 
 use crate::{
     instr::{ImmSlot, Opcode, Operand, Reg},
     value::Value,
 };
 
-pub struct Bytecode {
+pub struct Bytecode<'a> {
     buffer: Vec<u16>,
-    imm_slots: Vec<Value>,
-    imm_slot_value_map: HashMap<Value, ImmSlot>,
+    imm_slots: Vec<Value<'a>>,
+    imm_slot_value_map: HashMap<Value<'a>, ImmSlot>,
+}
+
+pub struct Fun<'a> {
+    pub bytecode: Vec<u16>,
+    pub immediates: Vec<Cell<Value<'a>>>,
 }
 
 macro_rules! instr {
     ($name:ident, $imm_opcode:ident, $reg_opcode:ident) => {
-        pub fn $name(&mut self, operand: impl Into<Operand>) {
+        pub fn $name(&mut self, operand: impl Into<Operand<'a>>) {
             let (opcode, operand) = match operand.into() {
                 Operand::Reg(reg) => (Opcode::$reg_opcode, reg.0),
                 Operand::ImmValue(value) => (Opcode::$imm_opcode, self.get_value_imm_slot(value).0),
@@ -25,8 +33,8 @@ macro_rules! instr {
     };
 }
 
-impl Bytecode {
-    pub fn new() -> Bytecode {
+impl<'a> Bytecode<'a> {
+    pub fn new() -> Bytecode<'a> {
         Bytecode {
             buffer: vec![],
             imm_slots: vec![],
@@ -34,7 +42,7 @@ impl Bytecode {
         }
     }
 
-    pub fn get_value_imm_slot(&mut self, value: Value) -> ImmSlot {
+    pub fn get_value_imm_slot(&mut self, value: Value<'a>) -> ImmSlot {
         match self.imm_slot_value_map.entry(value) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => {
@@ -79,4 +87,10 @@ impl Bytecode {
 
     instr!(idiv, DivIntImm, DivIntReg);
     instr!(fdiv, DivFloatImm, DivFloatReg);
+}
+
+impl<'a> Default for Bytecode<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
