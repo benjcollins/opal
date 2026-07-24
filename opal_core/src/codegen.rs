@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::InfixOp,
-    bytecode::Bytecode,
+    bytecode::{Bytecode, Fun},
     instr::{ImmSlot, Operand, Reg},
     ir,
     ty::{NumericType, TypeContext},
@@ -23,11 +23,15 @@ impl<'a, 'b> Codegen<'a, 'b> {
         Codegen {
             bytecode: Bytecode::new(),
             local_map: HashMap::new(),
-            global_imm_slots: vec![],
+            global_imm_slots: Vec::new(),
+            scopes: Vec::new(),
             next_reg: 0,
             type_context,
-            scopes: vec![],
         }
+    }
+
+    pub fn finish(self) -> Fun {
+        self.bytecode.finish()
     }
 
     pub fn gen_expr_operand(&mut self, expr: &ir::Expr) -> Operand<'b> {
@@ -46,7 +50,7 @@ impl<'a, 'b> Codegen<'a, 'b> {
             _ => {
                 let reg = self.alloc_reg();
                 self.gen_expr_acc(expr);
-                self.bytecode.store(reg);
+                self.bytecode.instr().store(reg);
                 reg.into()
             }
         }
@@ -61,10 +65,10 @@ impl<'a, 'b> Codegen<'a, 'b> {
                 for arg in args {
                     let reg = self.alloc_reg();
                     self.gen_expr_acc(arg);
-                    self.bytecode.store(reg);
+                    self.bytecode.instr().store(reg);
                 }
-                self.bytecode.load(fun);
-                self.bytecode.call(args_base);
+                self.bytecode.instr().load(fun);
+                self.bytecode.instr().call(args_base);
             }
             ir::Expr::Infix {
                 left,
@@ -75,20 +79,21 @@ impl<'a, 'b> Codegen<'a, 'b> {
                 let ty = self.type_context.get_numeric_type(ty).unwrap();
                 let left_operand = self.gen_expr_operand(left);
                 self.gen_expr_acc(right);
+                let instr = self.bytecode.instr();
                 match (op, ty) {
-                    (InfixOp::Add, NumericType::Int) => self.bytecode.iadd(left_operand),
-                    (InfixOp::Add, NumericType::Float) => self.bytecode.fadd(left_operand),
-                    (InfixOp::Sub, NumericType::Int) => self.bytecode.isub(left_operand),
-                    (InfixOp::Sub, NumericType::Float) => self.bytecode.fsub(left_operand),
-                    (InfixOp::Mul, NumericType::Int) => self.bytecode.imul(left_operand),
-                    (InfixOp::Mul, NumericType::Float) => self.bytecode.fmul(left_operand),
-                    (InfixOp::Div, NumericType::Int) => self.bytecode.idiv(left_operand),
-                    (InfixOp::Div, NumericType::Float) => self.bytecode.fdiv(left_operand),
+                    (InfixOp::Add, NumericType::Int) => instr.iadd(left_operand),
+                    (InfixOp::Add, NumericType::Float) => instr.fadd(left_operand),
+                    (InfixOp::Sub, NumericType::Int) => instr.isub(left_operand),
+                    (InfixOp::Sub, NumericType::Float) => instr.fsub(left_operand),
+                    (InfixOp::Mul, NumericType::Int) => instr.imul(left_operand),
+                    (InfixOp::Mul, NumericType::Float) => instr.fmul(left_operand),
+                    (InfixOp::Div, NumericType::Int) => instr.idiv(left_operand),
+                    (InfixOp::Div, NumericType::Float) => instr.fdiv(left_operand),
                 }
             }
             _ => {
                 let operand = self.gen_expr_operand(expr);
-                self.bytecode.load(operand);
+                self.bytecode.instr().load(operand);
             }
         }
         self.exit_scope();
@@ -99,7 +104,7 @@ impl<'a, 'b> Codegen<'a, 'b> {
             ir::Stmt::VarDecl { local, value } => {
                 let reg = self.alloc_reg();
                 self.gen_expr_acc(value);
-                self.bytecode.store(reg);
+                self.bytecode.instr().store(reg);
                 self.local_map.insert(*local, reg);
             }
             ir::Stmt::Expr(expr) => {
@@ -107,7 +112,7 @@ impl<'a, 'b> Codegen<'a, 'b> {
             }
             ir::Stmt::Return(expr) => {
                 self.gen_expr_acc(expr);
-                self.bytecode.ret();
+                self.bytecode.instr().ret();
             }
         }
     }

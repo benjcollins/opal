@@ -19,10 +19,10 @@ pub type Float = f64;
 #[cfg(target_pointer_width = "64")]
 pub type UnsignedInt = u64;
 
-type RustFun = for<'a> fn(&[Value<'a>]) -> Value<'a>;
+type HostFun = for<'a> fn(&[Value<'a>]) -> Value<'a>;
 
 pub enum FunValue<'a> {
-    Rust(RustFun),
+    Host(HostFun),
     Opal(&'a Fun<'a>),
     Null,
 }
@@ -45,7 +45,7 @@ impl<'a> Value<'a> {
     }
     pub fn from_fun(fun: FunValue<'a>) -> Value<'a> {
         Value::new(match fun {
-            FunValue::Rust(fun_ptr) => fun_ptr as *const (),
+            FunValue::Host(fun_ptr) => fun_ptr as *const (),
             FunValue::Opal(fun) => ptr::from_ref(fun).map_addr(|addr| addr | 1).cast(),
             FunValue::Null => ptr::without_provenance(0),
         })
@@ -67,7 +67,7 @@ impl<'a> Value<'a> {
             } else if self.0.addr() & 1 == 1 {
                 FunValue::Opal(self.0.cast::<Fun>().as_ref().unwrap())
             } else {
-                FunValue::Rust(mem::transmute::<*const (), RustFun>(self.0))
+                FunValue::Host(mem::transmute::<*const (), HostFun>(self.0))
             }
         }
     }

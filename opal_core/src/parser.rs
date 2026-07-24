@@ -70,24 +70,16 @@ impl<'a> Parser<'a> {
             }
             Some(Token::Symbol(Symbol::OpenParen)) => {
                 let open_paren = self.advance_token();
+                let expr = self.parse_expr(0)?;
                 if self.peek_token() == Some(&Token::Symbol(Symbol::CloseParen)) {
                     let close_paren = self.advance_token();
-                    Ok(ast::Expr::Unit {
+                    Ok(ast::Expr::Parens {
                         open_paren,
+                        expr: Box::new(expr),
                         close_paren,
                     })
                 } else {
-                    let expr = self.parse_expr(0)?;
-                    if self.peek_token() == Some(&Token::Symbol(Symbol::CloseParen)) {
-                        let close_paren = self.advance_token();
-                        Ok(ast::Expr::Parens {
-                            open_paren,
-                            expr: Box::new(expr),
-                            close_paren,
-                        })
-                    } else {
-                        Err(self.parse_error("expected closing parenthesis"))
-                    }
+                    Err(self.parse_error("expected closing parenthesis"))
                 }
             }
             _ => Err(self.parse_error("expected an expression")),
@@ -252,6 +244,19 @@ impl<'a> Parser<'a> {
             comma,
         })
     }
+    pub fn parse_returns(&mut self) -> Result<ast::Returns, ParseError> {
+        match self.peek_token() {
+            Some(Token::Keyword(Keyword::NoReturn)) => {
+                Ok(ast::Returns::NoReturn(self.advance_token()))
+            }
+            Some(Token::Symbol(Symbol::Arrow)) => {
+                let arrow = self.advance_token();
+                let ty = self.parse_type()?;
+                Ok(ast::Returns::Type { arrow, ty })
+            }
+            _ => Ok(ast::Returns::None),
+        }
+    }
     pub fn parse_decl(&mut self) -> Result<ast::Decl, ParseError> {
         match self.peek_token() {
             Some(Token::Keyword(Keyword::Fun)) => {
@@ -275,13 +280,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let close_paren = self.advance_token();
-                let returns = if self.peek_token() == Some(&Token::Symbol(Symbol::Arrow)) {
-                    let arrow = self.advance_token();
-                    let ty = self.parse_type()?;
-                    Some(ast::Returns { arrow, ty })
-                } else {
-                    None
-                };
+                let returns = self.parse_returns()?;
                 let body = self.parse_block()?;
                 Ok(ast::Decl::Fun {
                     fun: func,
@@ -333,7 +332,10 @@ mod tests {
 
     use super::{ParseError, Parser};
 
-    fn parse_successful<T>(input: &str, parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>) -> T {
+    fn parse_successful<T>(
+        input: &str,
+        parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>,
+    ) -> T {
         let mut parser = Parser::new(input);
         parse_fn(&mut parser).unwrap()
     }
@@ -397,9 +399,10 @@ mod tests {
 
     #[test]
     fn test_module_with_decl() {
-        assert_debug_snapshot!(parse_successful("module main; fun main() { var x = 3; }", |parser| {
-            parser.parse_file()
-        }));
+        assert_debug_snapshot!(parse_successful(
+            "module main; fun main() { var x = 3; }",
+            |parser| { parser.parse_file() }
+        ));
     }
 
     fn parse_failure<T: Debug>(
@@ -407,7 +410,9 @@ mod tests {
         parse_fn: impl FnOnce(&mut Parser) -> Result<T, ParseError>,
         expected_message: &str,
     ) {
-        let error_start = input.find("<ERROR>").expect("expected <ERROR> marker in input");
+        let error_start = input
+            .find("<ERROR>")
+            .expect("expected <ERROR> marker in input");
         let input = input.replace("<ERROR>", "");
         let mut parser = Parser::new(&input);
         let error = parse_fn(&mut parser).unwrap_err();
@@ -430,7 +435,11 @@ mod tests {
 
     #[test]
     fn test_expected_expression_error() {
-        parse_failure("<ERROR>;", |parser| parser.parse_expr(0), "expected an expression");
+        parse_failure(
+            "<ERROR>;",
+            |parser| parser.parse_expr(0),
+            "expected an expression",
+        );
     }
 
     #[test]
@@ -444,12 +453,20 @@ mod tests {
 
     #[test]
     fn test_expected_equals_sign_error() {
-        parse_failure("var x <ERROR>3;", |parser| parser.parse_stmt(), "expected equals sign");
+        parse_failure(
+            "var x <ERROR>3;",
+            |parser| parser.parse_stmt(),
+            "expected equals sign",
+        );
     }
 
     #[test]
     fn test_expected_semicolon_error() {
-        parse_failure("foo(1)<ERROR>", |parser| parser.parse_stmt(), "expected semicolon");
+        parse_failure(
+            "foo(1)<ERROR>",
+            |parser| parser.parse_stmt(),
+            "expected semicolon",
+        );
     }
 
     #[test]
@@ -526,11 +543,19 @@ mod tests {
 
     #[test]
     fn test_expected_module_name_error() {
-        parse_failure("module <ERROR>;", |parser| parser.parse_file(), "expected module name");
+        parse_failure(
+            "module <ERROR>;",
+            |parser| parser.parse_file(),
+            "expected module name",
+        );
     }
 
     #[test]
     fn test_expected_module_semicolon_error() {
-        parse_failure("module main<ERROR>", |parser| parser.parse_file(), "expected semicolon");
+        parse_failure(
+            "module main<ERROR>",
+            |parser| parser.parse_file(),
+            "expected semicolon",
+        );
     }
 }

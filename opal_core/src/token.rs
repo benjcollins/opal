@@ -20,6 +20,7 @@ pub enum Keyword {
     False,
     Module,
     Return,
+    NoReturn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]

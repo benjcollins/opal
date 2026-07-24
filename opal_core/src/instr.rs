@@ -30,7 +30,6 @@ pub enum Opcode {
     DivFloatReg,
     DivFloatImm,
 
-    // PushKind,
     Call,
     Ret,
 }

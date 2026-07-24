@@ -5,3 +5,7 @@ fun test() -> Bool {
     var y = x + 1;
     return true;
 }
+
+fun exit() noreturn {
+
+}

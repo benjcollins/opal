@@ -79,6 +79,7 @@ fn main() {
                     }
                 }
                 let mut codegen = Codegen::new(&type_context);
+
                 codegen.gen_block(&body);
             }
         }

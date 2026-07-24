@@ -4,13 +4,22 @@ use derive_more::From;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<T> {
-    Unit,
     Bool,
-    Void,
     Int,
     Float,
     String,
     Fun(Vec<T>, Box<T>),
+}
+
+pub struct FunType<T> {
+    params: Vec<T>,
+    returns: Returns<T>,
+}
+
+pub enum Returns<T> {
+    NoReturn,
+    None,
+    Type(T),
 }
 
 #[derive(Debug, Clone, From)]
@@ -52,9 +61,7 @@ pub struct TypeError;
 impl<T> Type<T> {
     pub fn try_map<U, E>(&self, f: impl Fn(&T) -> Result<U, E> + Copy) -> Result<Type<U>, E> {
         match self {
-            Type::Unit => Ok(Type::Unit),
             Type::Bool => Ok(Type::Bool),
-            Type::Void => Ok(Type::Void),
             Type::Int => Ok(Type::Int),
             Type::Float => Ok(Type::Float),
             Type::String => Ok(Type::String),
@@ -79,9 +86,7 @@ fn unify_types<A, B>(
     mut unify_fn: impl FnMut(&A, &B) -> Result<(), TypeError>,
 ) -> Result<(), TypeError> {
     match (a, b) {
-        (Type::Unit, Type::Unit)
-        | (Type::Bool, Type::Bool)
-        | (Type::Void, Type::Void)
+        (Type::Bool, Type::Bool)
         | (Type::Int, Type::Int)
         | (Type::Float, Type::Float)
         | (Type::String, Type::String) => (),

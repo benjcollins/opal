@@ -18,10 +18,6 @@ pub enum Expr {
         value: String,
         span: Span,
     },
-    Unit {
-        open_paren: Span,
-        close_paren: Span,
-    },
     Var {
         name: String,
         span: Span,
@@ -97,9 +93,10 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Returns {
-    pub arrow: Span,
-    pub ty: Type,
+pub enum Returns {
+    None,
+    Type { arrow: Span, ty: Type },
+    NoReturn(Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -111,7 +108,7 @@ pub enum Decl {
         open_paren: Span,
         params: Vec<Param>,
         close_paren: Span,
-        returns: Option<Returns>,
+        returns: Returns,
         body: Block,
     },
 }

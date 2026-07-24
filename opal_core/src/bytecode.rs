@@ -8,10 +8,14 @@ use crate::{
     value::Value,
 };
 
-pub struct Bytecode<'a> {
+pub struct Bytecode<'v> {
     buffer: Vec<u16>,
-    imm_slots: Vec<Value<'a>>,
-    imm_slot_value_map: HashMap<Value<'a>, ImmSlot>,
+    imm_slots: Vec<Value<'v>>,
+    imm_slot_value_map: HashMap<Value<'v>, ImmSlot>,
+}
+
+pub struct InstrBuilder<'v, 'b> {
+    bytecode: &'b mut Bytecode<'v>,
 }
 
 pub struct Fun<'a> {
@@ -20,29 +24,40 @@ pub struct Fun<'a> {
 }
 
 macro_rules! instr {
-    ($name:ident, $imm_opcode:ident, $reg_opcode:ident) => {
-        pub fn $name(&mut self, operand: impl Into<Operand<'a>>) {
+    ($name:ident, $imm_opcode:ident, $reg_opcode:ident, $value_lifetime:lifetime) => {
+        pub fn $name(self, operand: impl Into<Operand<$value_lifetime>>) {
             let (opcode, operand) = match operand.into() {
                 Operand::Reg(reg) => (Opcode::$reg_opcode, reg.0),
-                Operand::ImmValue(value) => (Opcode::$imm_opcode, self.get_value_imm_slot(value).0),
+                Operand::ImmValue(value) => (
+                    Opcode::$imm_opcode,
+                    self.bytecode.get_value_imm_slot(value).0,
+                ),
                 Operand::ImmSlot(slot) => (Opcode::$imm_opcode, slot.0),
             };
-            self.buffer
+            self.bytecode
+                .buffer
                 .push(u16::from_be_bytes([opcode as u8, operand]));
         }
     };
 }
 
-impl<'a> Bytecode<'a> {
-    pub fn new() -> Bytecode<'a> {
+impl<'v> Bytecode<'v> {
+    pub fn new() -> Bytecode<'v> {
         Bytecode {
-            buffer: vec![],
-            imm_slots: vec![],
+            buffer: Vec::new(),
+            imm_slots: Vec::new(),
             imm_slot_value_map: HashMap::new(),
         }
     }
 
-    pub fn get_value_imm_slot(&mut self, value: Value<'a>) -> ImmSlot {
+    pub fn finish(self) -> Fun<'v> {
+        Fun {
+            bytecode: self.buffer,
+            immediates: self.imm_slots,
+        }
+    }
+
+    pub fn get_value_imm_slot(&mut self, value: Value<'v>) -> ImmSlot {
         match self.imm_slot_value_map.entry(value) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => {
@@ -60,37 +75,47 @@ impl<'a> Bytecode<'a> {
         slot
     }
 
-    pub fn store(&mut self, reg: Reg) {
-        self.buffer
+    pub fn instr(&mut self) -> InstrBuilder<'v, '_> {
+        InstrBuilder { bytecode: self }
+    }
+}
+
+impl<'v> Default for Bytecode<'v> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'v, 'b> InstrBuilder<'v, 'b> {
+    instr!(load, LoadImm, LoadReg, 'v);
+
+    instr!(iadd, AddIntImm, AddIntReg, 'v);
+    instr!(fadd, AddFloatImm, AddFloatReg, 'v);
+
+    instr!(isub, SubIntImm, SubIntReg, 'v);
+    instr!(fsub, SubFloatImm, SubFloatReg, 'v);
+
+    instr!(imul, MulIntImm, MulIntReg, 'v);
+    instr!(fmul, MulFloatImm, MulFloatReg, 'v);
+
+    instr!(idiv, DivIntImm, DivIntReg, 'v);
+    instr!(fdiv, DivFloatImm, DivFloatReg, 'v);
+
+    pub fn store(self, reg: Reg) {
+        self.bytecode
+            .buffer
             .push(u16::from_be_bytes([Opcode::StoreReg as u8, reg.0]));
     }
 
-    pub fn call(&mut self, base: u8) {
-        self.buffer
+    pub fn call(self, base: u8) {
+        self.bytecode
+            .buffer
             .push(u16::from_be_bytes([Opcode::Call as u8, base]));
     }
 
-    pub fn ret(&mut self) {
-        self.buffer.push(u16::from_be_bytes([Opcode::Ret as u8, 0]));
-    }
-
-    instr!(load, LoadImm, LoadReg);
-
-    instr!(iadd, AddIntImm, AddIntReg);
-    instr!(fadd, AddFloatImm, AddFloatReg);
-
-    instr!(isub, SubIntImm, SubIntReg);
-    instr!(fsub, SubFloatImm, SubFloatReg);
-
-    instr!(imul, MulIntImm, MulIntReg);
-    instr!(fmul, MulFloatImm, MulFloatReg);
-
-    instr!(idiv, DivIntImm, DivIntReg);
-    instr!(fdiv, DivFloatImm, DivFloatReg);
-}
-
-impl<'a> Default for Bytecode<'a> {
-    fn default() -> Self {
-        Self::new()
+    pub fn ret(self) {
+        self.bytecode
+            .buffer
+            .push(u16::from_be_bytes([Opcode::Ret as u8, 0]));
     }
 }
